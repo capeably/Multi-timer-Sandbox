@@ -87,24 +87,39 @@ document.addEventListener('visibilitychange', function() {
 });
 
 function handleTimerComplete(timer) {
-  timer.complete();
+  var segment = timer.activeSegment;
 
-  if (timer.soundEnabled) {
+  // Play sound for completed segment
+  if (segment.soundEnabled) {
     initAudio();
     setGlobalVolume(Number(App.volumeSlider.value));
-    if (timer.repeatSound) {
-      startRepeatSound(timer.soundKey);
+    if (timer.repeatSound && !timer.hasNextSegment()) {
+      startRepeatSound(segment.soundKey);
     } else {
-      playSound(timer.soundKey);
+      playSound(segment.soundKey);
     }
   }
 
+  // Check if we should auto-advance to next segment
+  if (timer.autoAdvance && timer.hasNextSegment()) {
+    // Read durations from DOM for upcoming segments (in case user edited them)
+    syncSegmentDurationsFromDOM(timer);
+    timer.advanceSegment();
+    announce(timer.title + ' segment ' + timer._activeSegmentIndex + ' started');
+    updateTimerCard(timer);
+    persist();
+    return;
+  }
+
+  // No more segments or auto-advance off: complete the timer
+  timer.complete();
   announce(timer.title + ' timer completed');
 
   if (timer.repeat && !timer.repeatSound) {
     setTimeout(function() {
       timer.reset();
       timer.start();
+      renderSegments(document.querySelector('[data-timer-id="' + timer.id + '"]'), timer);
       updateTimerCard(timer);
       persist();
     }, 1500);
@@ -112,6 +127,19 @@ function handleTimerComplete(timer) {
 
   updateTimerCard(timer);
   persist();
+}
+
+// Sync all segment durations from DOM inputs (for segments not yet played)
+function syncSegmentDurationsFromDOM(timer) {
+  var card = document.querySelector('[data-timer-id="' + timer.id + '"]');
+  if (!card) return;
+  var segEls = card.querySelectorAll('.segment-row');
+  segEls.forEach(function(el, i) {
+    if (i > timer._activeSegmentIndex && timer.segments[i]) {
+      var ms = readSegmentTimeInputs(el);
+      if (ms > 0) timer.segments[i].durationMs = ms;
+    }
+  });
 }
 
 // === Toolbar ===
@@ -188,13 +216,28 @@ function attachGridListeners() {
   var gridEl = document.getElementById('timer-grid');
   var dragSrcId = null;
 
+  // === Card-level drag (reorder timers) ===
   gridEl.addEventListener('mousedown', function(e) {
+    // Segment drag handle
+    var segHandle = e.target.closest('.seg-drag-handle');
+    if (segHandle) {
+      var segRow = segHandle.closest('.segment-row');
+      if (segRow) segRow.draggable = true;
+      var card = e.target.closest('.timer-card');
+      if (card) card.draggable = false;
+      return;
+    }
+    // Card drag handle
     var handle = e.target.closest('.drag-handle');
     var card = e.target.closest('.timer-card');
     if (card) card.draggable = !!handle;
+    // Reset all segment rows draggable
+    if (card) card.querySelectorAll('.segment-row').forEach(function(r) { r.draggable = false; });
   });
 
   gridEl.addEventListener('dragstart', function(e) {
+    // Segment drag is handled separately
+    if (e.target.closest('.seg-drag-handle')) return;
     var card = e.target.closest('.timer-card');
     if (!card) return;
     dragSrcId = card.dataset.timerId;
@@ -235,7 +278,7 @@ function attachGridListeners() {
     var srcCard = gridEl.querySelector('[data-timer-id="' + dragSrcId + '"]');
     if (!srcCard) return;
 
-    // Swap positions: place src where target is, and target where src was
+    // Swap positions
     var placeholder = document.createElement('div');
     gridEl.insertBefore(placeholder, srcCard);
     gridEl.insertBefore(srcCard, targetCard);
@@ -253,6 +296,67 @@ function attachGridListeners() {
     });
     App.timers = newTimers;
     persist();
+  });
+
+  // === Segment drag (reorder segments within a timer) ===
+  var segDragSrcId = null;
+  var segDragTimerId = null;
+
+  gridEl.addEventListener('dragstart', function(e) {
+    var segRow = e.target.closest('.segment-row[draggable="true"]');
+    if (!segRow) return;
+    e.stopPropagation();
+    segDragSrcId = segRow.dataset.segmentId;
+    segDragTimerId = segRow.closest('.timer-card').dataset.timerId;
+    segRow.classList.add('seg-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'seg:' + segDragSrcId);
+  }, true);
+
+  gridEl.addEventListener('dragover', function(e) {
+    if (!segDragSrcId) return;
+    var segRow = e.target.closest('.segment-row');
+    if (!segRow || segRow.dataset.segmentId === segDragSrcId) return;
+    e.preventDefault();
+    var container = segRow.closest('.segments-container');
+    container.querySelectorAll('.seg-drag-over').forEach(function(el) { el.classList.remove('seg-drag-over'); });
+    segRow.classList.add('seg-drag-over');
+  });
+
+  gridEl.addEventListener('drop', function(e) {
+    if (!segDragSrcId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var targetRow = e.target.closest('.segment-row');
+    if (!targetRow || targetRow.dataset.segmentId === segDragSrcId) return;
+
+    var card = targetRow.closest('.timer-card');
+    var timer = App.timers.get(card.dataset.timerId);
+    if (!timer) return;
+
+    var srcIdx = -1, tgtIdx = -1;
+    timer.segments.forEach(function(s, i) {
+      if (s.id === segDragSrcId) srcIdx = i;
+      if (s.id === targetRow.dataset.segmentId) tgtIdx = i;
+    });
+    if (srcIdx === -1 || tgtIdx === -1) return;
+
+    // Swap segments
+    var temp = timer.segments[srcIdx];
+    timer.segments[srcIdx] = timer.segments[tgtIdx];
+    timer.segments[tgtIdx] = temp;
+
+    renderSegments(card, timer);
+    persist();
+  });
+
+  gridEl.addEventListener('dragend', function(e) {
+    if (segDragSrcId) {
+      gridEl.querySelectorAll('.seg-dragging').forEach(function(el) { el.classList.remove('seg-dragging'); });
+      gridEl.querySelectorAll('.seg-drag-over').forEach(function(el) { el.classList.remove('seg-drag-over'); });
+      segDragSrcId = null;
+      segDragTimerId = null;
+    }
   });
 
   // Click: actions + color buttons
@@ -280,18 +384,36 @@ function attachGridListeners() {
     var timerId = ctx.timerId;
     var action = actionEl.dataset.action;
 
+    // Find which segment this action belongs to (if any)
+    var segId = getSegmentFromEvent(e);
+    var segIndex = -1;
+    if (segId) {
+      for (var i = 0; i < timer.segments.length; i++) {
+        if (timer.segments[i].id === segId) { segIndex = i; break; }
+      }
+    }
+
     switch (action) {
       case 'play':
         initAudio();
         setGlobalVolume(Number(App.volumeSlider.value));
         if (timer.state === 'idle') {
-          var ms = readTimeInputs(ctx.card);
-          if (ms > 0) { timer.setDuration(ms); timer.start(); }
+          // Sync all segment durations from DOM before starting
+          var segEls = ctx.card.querySelectorAll('.segment-row');
+          segEls.forEach(function(el, i) {
+            if (timer.segments[i]) {
+              var ms = readSegmentTimeInputs(el);
+              if (ms > 0) timer.segments[i].durationMs = ms;
+            }
+          });
+          timer._remainingAtPause = timer.activeSegment.durationMs;
+          timer.start();
         } else if (timer.state === 'paused') {
           timer.resume();
         } else if (timer.state === 'completed') {
           stopRepeatSound();
           timer.reset();
+          renderSegments(ctx.card, timer);
         }
         updateTimerCard(timer);
         persist();
@@ -304,6 +426,7 @@ function attachGridListeners() {
       case 'reset':
         stopRepeatSound();
         timer.reset();
+        renderSegments(ctx.card, timer);
         updateTimerCard(timer);
         persist();
         break;
@@ -334,10 +457,26 @@ function attachGridListeners() {
           }, 3000);
         }
         break;
-      case 'toggle-sound':
-        timer.soundEnabled = !timer.soundEnabled;
-        actionEl.classList.toggle('muted', !timer.soundEnabled);
+      case 'add-segment':
+        if (timer.state !== 'idle') break;
+        timer.addSegment();
+        renderSegments(ctx.card, timer);
         persist();
+        break;
+      case 'delete-segment':
+        if (timer.state !== 'idle') break;
+        if (segId && timer.segments.length > 1) {
+          timer.removeSegment(segId);
+          renderSegments(ctx.card, timer);
+          persist();
+        }
+        break;
+      case 'seg-toggle-sound':
+        if (segIndex >= 0) {
+          timer.segments[segIndex].soundEnabled = !timer.segments[segIndex].soundEnabled;
+          actionEl.classList.toggle('muted', !timer.segments[segIndex].soundEnabled);
+          persist();
+        }
         break;
       case 'stop-sound':
         stopRepeatSound();
@@ -345,13 +484,14 @@ function attachGridListeners() {
         if (timer.repeat) {
           timer.start();
         }
+        renderSegments(ctx.card, timer);
         updateTimerCard(timer);
         persist();
         break;
     }
   });
 
-  // Change: settings toggles + preset select
+  // Change: settings toggles + segment preset select
   gridEl.addEventListener('change', function(e) {
     var settingInput = e.target.closest('[data-setting]');
     if (settingInput) {
@@ -359,9 +499,6 @@ function attachGridListeners() {
       if (!ctx) return;
       var setting = settingInput.dataset.setting;
       ctx.timer[setting] = settingInput.checked;
-      if (setting === 'soundEnabled') {
-        ctx.card.querySelector('.btn-sound-toggle').classList.toggle('muted', !ctx.timer.soundEnabled);
-      }
       persist();
       return;
     }
@@ -370,13 +507,26 @@ function attachGridListeners() {
       var ctx = getTimerFromEvent(e);
       if (!ctx) return;
       var val = e.target.value;
+
+      // Find which segment this select belongs to
+      var segId = getSegmentFromEvent(e);
+      var seg = null;
+      if (segId) {
+        for (var i = 0; i < ctx.timer.segments.length; i++) {
+          if (ctx.timer.segments[i].id === segId) { seg = ctx.timer.segments[i]; break; }
+        }
+      }
+      if (!seg) seg = ctx.timer.activeSegment;
+
       if (val.startsWith('sound:') || val.startsWith('msg:') || val.startsWith('cmsg:') || val.startsWith('csnd:')) {
-        ctx.timer.soundKey = val.startsWith('sound:') ? val.slice(6) : val;
+        seg.soundKey = val.startsWith('sound:') ? val.slice(6) : val;
       } else {
         var ms = Number(val);
         if (ms > 0 && ctx.timer.state !== 'running') {
-          ctx.timer.setDuration(ms);
-          updateTimerCard(ctx.timer);
+          seg.durationMs = ms;
+          // Update the time inputs for this segment
+          var segRow = e.target.closest('.segment-row');
+          if (segRow) setSegmentTimeInputs(segRow, ms);
         }
       }
       persist();
@@ -393,8 +543,19 @@ function attachGridListeners() {
       if (unit === 'hours') val = Math.min(99, Math.max(0, val));
       else val = Math.min(59, Math.max(0, val));
       e.target.value = String(val).padStart(2, '0');
-      var ms = readTimeInputs(ctx.card);
-      ctx.timer.setDuration(ms);
+
+      // Find which segment this input belongs to and update its duration
+      var segRow = e.target.closest('.segment-row');
+      var segId = segRow ? segRow.dataset.segmentId : null;
+      if (segId) {
+        for (var i = 0; i < ctx.timer.segments.length; i++) {
+          if (ctx.timer.segments[i].id === segId) {
+            ctx.timer.segments[i].durationMs = readSegmentTimeInputs(segRow);
+            break;
+          }
+        }
+      }
+      ctx.timer._remainingAtPause = ctx.timer.activeSegment.durationMs;
       persist();
       return;
     }

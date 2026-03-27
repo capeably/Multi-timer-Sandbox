@@ -328,6 +328,132 @@ button { cursor: pointer; font-family: inherit; }
 .btn-sound-toggle.muted { color: #ccc; }
 .btn-sound-toggle.muted svg { opacity: 0.4; }
 
+/* ===== Segments ===== */
+.segments-container {
+  border-top: 1px solid #eee;
+}
+.segment-row {
+  position: relative;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.segment-row.active {
+  background: rgba(76, 217, 100, 0.06);
+}
+.segment-row.completed-seg {
+  opacity: 0.45;
+}
+.segment-row .seg-drag-handle {
+  display: none;
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: grab;
+  color: #bbb;
+  font-size: 12px;
+  user-select: none;
+  padding: 2px;
+  z-index: 1;
+}
+.segment-row .seg-drag-handle:active { cursor: grabbing; }
+.timer-card:hover .segment-row .seg-drag-handle,
+.segment-row.seg-dragging .seg-drag-handle {
+  display: block;
+}
+.segment-row .seg-delete-btn {
+  display: none;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  z-index: 1;
+}
+.segment-row .seg-delete-btn:hover { color: #D9534F; }
+.timer-card:hover .segment-row .seg-delete-btn {
+  display: block;
+}
+.segment-row.seg-dragging { opacity: 0.4; }
+.segment-row.seg-drag-over { border-top: 2px solid var(--color-gold); }
+.seg-time-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0;
+  gap: 2px;
+}
+.seg-time-display .time-input {
+  width: 48px;
+  font-size: 1.5rem;
+  padding: 4px 2px;
+}
+.seg-time-display .time-sep {
+  font-size: 1.5rem;
+}
+.seg-bottom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 2px;
+}
+.seg-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 0 0 2px;
+}
+
+/* Single segment: use larger time display */
+.segments-container.single-segment .seg-time-display .time-input {
+  width: 60px;
+  font-size: 2rem;
+}
+.segments-container.single-segment .seg-time-display .time-sep {
+  font-size: 2rem;
+}
+.segments-container.single-segment .seg-label { display: none; }
+.segments-container.single-segment .seg-delete-btn { display: none !important; }
+.segments-container.single-segment .seg-drag-handle { display: none !important; }
+
+/* ===== Add Segment Button ===== */
+.btn-add-segment {
+  display: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px dashed #ccc;
+  background: #fff;
+  color: #bbb;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+  margin: 0 auto;
+  position: relative;
+  z-index: 2;
+  transition: border-color 0.15s, color 0.15s;
+  margin-top: -4px;
+  margin-bottom: 4px;
+}
+.timer-card:hover .btn-add-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-add-segment:hover {
+  border-color: #999;
+  color: #666;
+  background: #f8f8f8;
+}
+
 /* ===== Settings Panel (popup) ===== */
 .settings-panel {
   position: absolute;

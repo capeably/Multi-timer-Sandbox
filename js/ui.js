@@ -113,19 +113,28 @@ function buildDropdownHTML() {
   return html;
 }
 
-function rebuildDropdown(card, timer) {
-  var select = card.querySelector('.preset-select');
+function rebuildSegmentDropdown(segEl, segment) {
+  var select = segEl.querySelector('.preset-select');
   if (!select) return;
   select.innerHTML = buildDropdownHTML();
-  var val = getSoundDisplayValue(timer.soundKey);
+  var val = getSoundDisplayValue(segment.soundKey);
   var matched = false;
   for (var i = 0; i < select.options.length; i++) {
     if (select.options[i].value === val) { select.options[i].selected = true; matched = true; break; }
   }
-  if (!matched && (timer.soundKey.startsWith('cmsg:') || timer.soundKey.startsWith('csnd:'))) {
-    timer.soundKey = 'alarm';
+  if (!matched && (segment.soundKey.startsWith('cmsg:') || segment.soundKey.startsWith('csnd:'))) {
+    segment.soundKey = 'alarm';
     select.value = 'sound:alarm';
     saveTimers();
+  }
+}
+
+// Legacy wrappers for settings.js compatibility
+function rebuildDropdown(card, timer) {
+  var segments = card.querySelectorAll('.segment-row');
+  for (var i = 0; i < segments.length; i++) {
+    var seg = timer.segments[i];
+    if (seg) rebuildSegmentDropdown(segments[i], seg);
   }
 }
 
@@ -136,24 +145,94 @@ function rebuildAllDropdowns() {
   });
 }
 
+// ===== Segment Rendering =====
+function createSegmentElement(segment, index, total) {
+  var row = document.createElement('div');
+  row.className = 'segment-row';
+  row.dataset.segmentId = segment.id;
+
+  var totalSec = Math.floor(segment.durationMs / 1000);
+  var h = Math.floor(totalSec / 3600);
+  var m = Math.floor((totalSec % 3600) / 60);
+  var s = totalSec % 60;
+
+  row.innerHTML =
+    '<span class="seg-drag-handle" title="Reorder segment">&#9776;</span>' +
+    '<button class="seg-delete-btn" data-action="delete-segment" title="Remove segment" aria-label="Remove segment">&times;</button>' +
+    (total > 1 ? '<div class="seg-label">Segment ' + (index + 1) + '</div>' : '') +
+    '<div class="seg-time-display">' +
+      '<input type="text" class="time-input" data-unit="hours" value="' + String(h).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Hours">' +
+      '<span class="time-sep" aria-hidden="true">:</span>' +
+      '<input type="text" class="time-input" data-unit="minutes" value="' + String(m).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Minutes">' +
+      '<span class="time-sep" aria-hidden="true">:</span>' +
+      '<input type="text" class="time-input" data-unit="seconds" value="' + String(s).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Seconds">' +
+    '</div>' +
+    '<div class="seg-bottom-row">' +
+      '<select class="preset-select" data-action="seg-preset" aria-label="Presets and sounds"></select>' +
+      '<button class="btn-icon btn-sound-toggle' + (segment.soundEnabled ? '' : ' muted') + '" data-action="seg-toggle-sound" title="Sound on/off" aria-label="Toggle sound">' +
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
+          '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>' +
+          '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>' +
+        '</svg>' +
+      '</button>' +
+    '</div>';
+
+  return row;
+}
+
+function renderSegments(card, timer) {
+  var container = card.querySelector('.segments-container');
+  container.innerHTML = '';
+  container.classList.toggle('single-segment', timer.segments.length === 1);
+
+  timer.segments.forEach(function(seg, i) {
+    var el = createSegmentElement(seg, i, timer.segments.length);
+    // Mark active/completed
+    if (i === timer._activeSegmentIndex && timer.state !== 'idle') {
+      el.classList.add('active');
+    }
+    if (timer.state !== 'idle' && i < timer._activeSegmentIndex) {
+      el.classList.add('completed-seg');
+    }
+    container.appendChild(el);
+    rebuildSegmentDropdown(el, seg);
+    // Disable time inputs when running
+    if (timer.state === 'running') {
+      el.querySelectorAll('.time-input').forEach(function(inp) { inp.classList.add('running'); });
+    }
+  });
+}
+
 // ===== Timer Card Rendering =====
-function setTimeInputs(card, ms) {
+function setSegmentTimeInputs(segEl, ms) {
   var totalSec = Math.floor(ms / 1000);
   var h = Math.floor(totalSec / 3600);
   var m = Math.floor((totalSec % 3600) / 60);
   var s = totalSec % 60;
-  var inputs = card.querySelectorAll('.time-input');
+  var inputs = segEl.querySelectorAll('.time-input');
   inputs[0].value = String(h).padStart(2, '0');
   inputs[1].value = String(m).padStart(2, '0');
   inputs[2].value = String(s).padStart(2, '0');
 }
 
-function readTimeInputs(card) {
-  var inputs = card.querySelectorAll('.time-input');
+function readSegmentTimeInputs(segEl) {
+  var inputs = segEl.querySelectorAll('.time-input');
   var h = parseInt(inputs[0].value, 10) || 0;
   var m = parseInt(inputs[1].value, 10) || 0;
   var s = parseInt(inputs[2].value, 10) || 0;
   return (h * 3600 + m * 60 + s) * 1000;
+}
+
+// Legacy wrappers
+function setTimeInputs(card, ms) {
+  var activeSeg = card.querySelector('.segment-row.active') || card.querySelector('.segment-row');
+  if (activeSeg) setSegmentTimeInputs(activeSeg, ms);
+}
+
+function readTimeInputs(card) {
+  var activeSeg = card.querySelector('.segment-row.active') || card.querySelector('.segment-row');
+  if (activeSeg) return readSegmentTimeInputs(activeSeg);
+  return 0;
 }
 
 function renderTimerCard(timer) {
@@ -163,14 +242,14 @@ function renderTimerCard(timer) {
   card.draggable = true;
   card.querySelector('.timer-title').textContent = timer.title;
   applyTitleBarColors(card, timer.color);
-  setTimeInputs(card, timer.durationMs);
 
-  rebuildDropdown(card, timer);
+  // Render segments
+  renderSegments(card, timer);
 
+  // Settings panel
+  card.querySelector('[data-setting="autoAdvance"]').checked = timer.autoAdvance;
   card.querySelector('[data-setting="repeat"]').checked = timer.repeat;
   card.querySelector('[data-setting="repeatSound"]').checked = timer.repeatSound;
-  card.querySelector('[data-setting="soundEnabled"]').checked = timer.soundEnabled;
-  if (!timer.soundEnabled) card.querySelector('.btn-sound-toggle').classList.add('muted');
 
   card.querySelectorAll('.color-btn').forEach(function(btn) {
     btn.classList.toggle('active', btn.dataset.color === timer.color);
@@ -187,12 +266,25 @@ function updateTimerCard(timer) {
   var isPaused = timer.state === 'paused';
   var isCompleted = timer.state === 'completed';
 
-  setTimeInputs(card, timer.remainingMs);
+  // Update segment states
+  var segEls = card.querySelectorAll('.segment-row');
+  segEls.forEach(function(el, i) {
+    el.classList.toggle('active', i === timer._activeSegmentIndex && timer.state !== 'idle');
+    el.classList.toggle('completed-seg', timer.state !== 'idle' && i < timer._activeSegmentIndex);
+    el.querySelectorAll('.time-input').forEach(function(inp) {
+      inp.classList.toggle('running', isRunning && i === timer._activeSegmentIndex);
+    });
+  });
+
+  // Update active segment's time display
+  var activeSegEl = segEls[timer._activeSegmentIndex];
+  if (activeSegEl) {
+    setSegmentTimeInputs(activeSegEl, timer.remainingMs);
+  }
 
   var fill = card.querySelector('.progress-bar-fill');
   var pct = timer.progressPercent;
   fill.style.width = pct + '%';
-  fill.style.backgroundPosition = (100 - pct) + '% 0';
 
   var btnPlay = card.querySelector('.btn-play');
   var btnPause = card.querySelector('.btn-pause');
@@ -228,12 +320,9 @@ function updateTimerCard(timer) {
     btnStop.classList.add('hidden');
   }
 
-  card.querySelectorAll('.time-input').forEach(function(inp) {
-    inp.classList.toggle('running', isRunning);
-  });
   card.classList.toggle('completed', isCompleted);
 
-  if (isCompleted && timer.repeatSound && timer.soundEnabled) {
+  if (isCompleted && timer.repeatSound && timer.activeSegment.soundEnabled) {
     if (!card.querySelector('.stop-sound-banner')) {
       var banner = document.createElement('div');
       banner.className = 'stop-sound-banner';
@@ -286,4 +375,10 @@ function getTimerFromEvent(e) {
   var timer = App.timers.get(timerId);
   if (!timer) return null;
   return { timer: timer, card: card, timerId: timerId };
+}
+
+function getSegmentFromEvent(e) {
+  var segRow = e.target.closest('.segment-row');
+  if (!segRow) return null;
+  return segRow.dataset.segmentId || null;
 }
