@@ -320,6 +320,21 @@ function attachGridListeners() {
         removeTimerCard(timerId);
         persist();
         break;
+      case 'delete-x':
+        if (actionEl.classList.contains('confirm')) {
+          stopRepeatSound();
+          App.timers.delete(timerId);
+          removeTimerCard(timerId);
+          persist();
+        } else {
+          actionEl.classList.add('confirm');
+          actionEl.textContent = 'Delete?';
+          actionEl._confirmTimeout = setTimeout(function() {
+            actionEl.classList.remove('confirm');
+            actionEl.textContent = '\u00D7';
+          }, 3000);
+        }
+        break;
       case 'toggle-sound':
         timer.soundEnabled = !timer.soundEnabled;
         actionEl.classList.toggle('muted', !timer.soundEnabled);
