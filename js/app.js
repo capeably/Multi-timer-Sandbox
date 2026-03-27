@@ -235,13 +235,12 @@ function attachGridListeners() {
     var srcCard = gridEl.querySelector('[data-timer-id="' + dragSrcId + '"]');
     if (!srcCard) return;
 
-    var rect = targetCard.getBoundingClientRect();
-    var midY = rect.top + rect.height / 2;
-    if (e.clientY < midY) {
-      gridEl.insertBefore(srcCard, targetCard);
-    } else {
-      gridEl.insertBefore(srcCard, targetCard.nextSibling);
-    }
+    // Swap positions: place src where target is, and target where src was
+    var placeholder = document.createElement('div');
+    gridEl.insertBefore(placeholder, srcCard);
+    gridEl.insertBefore(srcCard, targetCard);
+    gridEl.insertBefore(targetCard, placeholder);
+    gridEl.removeChild(placeholder);
 
     targetCard.classList.remove('drag-over');
 

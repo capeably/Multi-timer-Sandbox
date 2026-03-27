@@ -31,7 +31,9 @@ function applyTitleBarColors(card, color) {
   var titleBar = card.querySelector('.timer-title-bar');
   var title = card.querySelector('.timer-title');
   var handle = card.querySelector('.drag-handle');
+  var fill = card.querySelector('.progress-bar-fill');
   titleBar.style.background = color;
+  if (fill) fill.style.background = color;
   if (isLightColor(color)) {
     title.style.color = '#333';
     title.style.textShadow = 'none';
