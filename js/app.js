@@ -160,6 +160,46 @@ function syncSegmentDurationsFromDOM(timer) {
   });
 }
 
+// === Time Input Helpers (chevron/wheel) ===
+function adjustTimeInput(input, dir) {
+  var unit = input.dataset.unit;
+  var max = unit === 'hours' ? 99 : 59;
+  var val = parseInt(input.value, 10) || 0;
+  val += dir;
+  if (val > max) val = 0;
+  if (val < 0) val = max;
+  input.value = String(val).padStart(2, '0');
+}
+
+function commitTimeInput(input) {
+  var segRow = input.closest('.segment-row');
+  if (!segRow) return;
+  var card = input.closest('.timer-card');
+  if (!card) return;
+  var timerId = card.dataset.timerId;
+  var timer = App.timers.get(timerId);
+  if (!timer || timer.state === 'running') return;
+  var segId = segRow.dataset.segmentId;
+  if (segId) {
+    for (var i = 0; i < timer.segments.length; i++) {
+      if (timer.segments[i].id === segId) {
+        timer.segments[i].durationMs = readSegmentTimeInputs(segRow);
+        break;
+      }
+    }
+  }
+  timer._remainingAtPause = timer.activeSegment.durationMs;
+  persist();
+}
+
+function commitPresetTimeInput(input) {
+  var unit = input.dataset.unit || input.id.replace('pe-', '');
+  var val = parseInt(input.value, 10) || 0;
+  var max = (unit === 'hours' || input.id === 'pe-hours') ? 99 : 59;
+  val = Math.min(max, Math.max(0, val));
+  input.value = String(val).padStart(2, '0');
+}
+
 // === Toolbar ===
 function attachToolbarListeners() {
   document.getElementById('btn-add-timer').addEventListener('click', function() {
@@ -591,20 +631,7 @@ function attachGridListeners() {
       if (unit === 'hours') val = Math.min(99, Math.max(0, val));
       else val = Math.min(59, Math.max(0, val));
       e.target.value = String(val).padStart(2, '0');
-
-      // Find which segment this input belongs to and update its duration
-      var segRow = e.target.closest('.segment-row');
-      var segId = segRow ? segRow.dataset.segmentId : null;
-      if (segId) {
-        for (var i = 0; i < ctx.timer.segments.length; i++) {
-          if (ctx.timer.segments[i].id === segId) {
-            ctx.timer.segments[i].durationMs = readSegmentTimeInputs(segRow);
-            break;
-          }
-        }
-      }
-      ctx.timer._remainingAtPause = ctx.timer.activeSegment.durationMs;
-      persist();
+      commitTimeInput(e.target);
       return;
     }
 
@@ -630,6 +657,8 @@ function attachGridListeners() {
   gridEl.addEventListener('keydown', function(e) {
     if (e.target.matches('.time-input')) {
       if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); adjustTimeInput(e.target, 1); commitTimeInput(e.target); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); adjustTimeInput(e.target, -1); commitTimeInput(e.target); return; }
       if (!/^\d$/.test(e.key) && ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'].indexOf(e.key) === -1) {
         e.preventDefault();
       }
@@ -655,6 +684,47 @@ function attachGridListeners() {
     sel.removeAllRanges();
     sel.addRange(range);
   });
+
+  // Chevron click + hold-to-repeat
+  gridEl.addEventListener('mousedown', function(e) {
+    var chevron = e.target.closest('.time-chevron');
+    if (!chevron) return;
+    e.preventDefault();
+    var wrap = chevron.closest('.time-input-wrap');
+    var input = wrap.querySelector('.time-input');
+    if (input.classList.contains('running')) return;
+
+    var dir = chevron.dataset.dir === 'up' ? 1 : -1;
+    adjustTimeInput(input, dir);
+
+    var delay = 400;
+    var timeoutId = null;
+    function repeatAdjust() {
+      adjustTimeInput(input, dir);
+      delay = Math.max(80, delay * 0.75);
+      timeoutId = setTimeout(repeatAdjust, delay);
+    }
+    timeoutId = setTimeout(repeatAdjust, delay);
+
+    function stopRepeat() {
+      clearTimeout(timeoutId);
+      commitTimeInput(input);
+      document.removeEventListener('mouseup', stopRepeat);
+      document.removeEventListener('mouseleave', stopRepeat);
+    }
+    document.addEventListener('mouseup', stopRepeat);
+    document.addEventListener('mouseleave', stopRepeat);
+  });
+
+  // Mouse wheel on time inputs
+  gridEl.addEventListener('wheel', function(e) {
+    var input = e.target.closest('.time-input');
+    if (!input || input.classList.contains('running')) return;
+    e.preventDefault();
+    var dir = e.deltaY < 0 ? 1 : -1;
+    adjustTimeInput(input, dir);
+    commitTimeInput(input);
+  }, { passive: false });
 }
 
 function addTimer(durationMs, title) {

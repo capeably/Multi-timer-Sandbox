@@ -250,11 +250,23 @@
         <div class="form-row">
           <label>Duration</label>
           <div class="pe-time-row">
-            <input type="number" class="time-input" id="pe-hours" min="0" max="99" value="00" aria-label="Hours">
+            <div class="time-input-wrap">
+              <button class="time-chevron time-chevron-up" data-dir="up" tabindex="-1" aria-label="Increase hours">&#9650;</button>
+              <input type="text" class="time-input" id="pe-hours" data-unit="hours" maxlength="2" inputmode="numeric" value="00" aria-label="Hours">
+              <button class="time-chevron time-chevron-down" data-dir="down" tabindex="-1" aria-label="Decrease hours">&#9660;</button>
+            </div>
             <span class="time-sep">:</span>
-            <input type="number" class="time-input" id="pe-minutes" min="0" max="59" value="00" aria-label="Minutes">
+            <div class="time-input-wrap">
+              <button class="time-chevron time-chevron-up" data-dir="up" tabindex="-1" aria-label="Increase minutes">&#9650;</button>
+              <input type="text" class="time-input" id="pe-minutes" data-unit="minutes" maxlength="2" inputmode="numeric" value="00" aria-label="Minutes">
+              <button class="time-chevron time-chevron-down" data-dir="down" tabindex="-1" aria-label="Decrease minutes">&#9660;</button>
+            </div>
             <span class="time-sep">:</span>
-            <input type="number" class="time-input" id="pe-seconds" min="0" max="59" value="00" aria-label="Seconds">
+            <div class="time-input-wrap">
+              <button class="time-chevron time-chevron-up" data-dir="up" tabindex="-1" aria-label="Increase seconds">&#9650;</button>
+              <input type="text" class="time-input" id="pe-seconds" data-unit="seconds" maxlength="2" inputmode="numeric" value="00" aria-label="Seconds">
+              <button class="time-chevron time-chevron-down" data-dir="down" tabindex="-1" aria-label="Decrease seconds">&#9660;</button>
+            </div>
           </div>
         </div>
         <div class="form-row">

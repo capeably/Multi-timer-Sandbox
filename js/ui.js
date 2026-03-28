@@ -160,11 +160,23 @@ function createSegmentElement(segment, index, total) {
     '<span class="seg-drag-handle" title="Reorder segment">&#9776;</span>' +
     '<button class="seg-delete-btn" data-action="delete-segment" title="Remove segment" aria-label="Remove segment">&times;</button>' +
     '<div class="seg-time-display">' +
-      '<input type="text" class="time-input" data-unit="hours" value="' + String(h).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Hours">' +
+      '<div class="time-input-wrap">' +
+        '<button class="time-chevron time-chevron-up" data-dir="up" tabindex="-1" aria-label="Increase hours">&#9650;</button>' +
+        '<input type="text" class="time-input" data-unit="hours" value="' + String(h).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Hours">' +
+        '<button class="time-chevron time-chevron-down" data-dir="down" tabindex="-1" aria-label="Decrease hours">&#9660;</button>' +
+      '</div>' +
       '<span class="time-sep" aria-hidden="true">:</span>' +
-      '<input type="text" class="time-input" data-unit="minutes" value="' + String(m).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Minutes">' +
+      '<div class="time-input-wrap">' +
+        '<button class="time-chevron time-chevron-up" data-dir="up" tabindex="-1" aria-label="Increase minutes">&#9650;</button>' +
+        '<input type="text" class="time-input" data-unit="minutes" value="' + String(m).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Minutes">' +
+        '<button class="time-chevron time-chevron-down" data-dir="down" tabindex="-1" aria-label="Decrease minutes">&#9660;</button>' +
+      '</div>' +
       '<span class="time-sep" aria-hidden="true">:</span>' +
-      '<input type="text" class="time-input" data-unit="seconds" value="' + String(s).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Seconds">' +
+      '<div class="time-input-wrap">' +
+        '<button class="time-chevron time-chevron-up" data-dir="up" tabindex="-1" aria-label="Increase seconds">&#9650;</button>' +
+        '<input type="text" class="time-input" data-unit="seconds" value="' + String(s).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Seconds">' +
+        '<button class="time-chevron time-chevron-down" data-dir="down" tabindex="-1" aria-label="Decrease seconds">&#9660;</button>' +
+      '</div>' +
     '</div>' +
     '<div class="seg-bottom-row">' +
       '<select class="preset-select" data-action="seg-preset" aria-label="Presets and sounds"></select>' +
@@ -270,8 +282,12 @@ function updateTimerCard(timer) {
   segEls.forEach(function(el, i) {
     el.classList.toggle('active', i === timer._activeSegmentIndex && timer.state !== 'idle');
     el.classList.toggle('completed-seg', timer.state !== 'idle' && i < timer._activeSegmentIndex);
+    var isActiveRunning = isRunning && i === timer._activeSegmentIndex;
     el.querySelectorAll('.time-input').forEach(function(inp) {
-      inp.classList.toggle('running', isRunning && i === timer._activeSegmentIndex);
+      inp.classList.toggle('running', isActiveRunning);
+    });
+    el.querySelectorAll('.time-input-wrap').forEach(function(wrap) {
+      wrap.classList.toggle('running', isActiveRunning);
     });
   });
 

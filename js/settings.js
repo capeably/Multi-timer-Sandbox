@@ -637,6 +637,44 @@ function attachSettingsModalListeners() {
   // Preset editor
   document.getElementById('pe-cancel').addEventListener('click', closePresetEditor);
   document.getElementById('pe-save').addEventListener('click', savePresetEdits);
+
+  // Preset editor: chevron + wheel for time inputs
+  var peTimeRow = document.querySelector('.pe-time-row');
+  if (peTimeRow) {
+    peTimeRow.addEventListener('mousedown', function(e) {
+      var chevron = e.target.closest('.time-chevron');
+      if (!chevron) return;
+      e.preventDefault();
+      var wrap = chevron.closest('.time-input-wrap');
+      var input = wrap.querySelector('.time-input');
+      var dir = chevron.dataset.dir === 'up' ? 1 : -1;
+      adjustTimeInput(input, dir);
+      var delay = 400;
+      var timeoutId = null;
+      function repeatAdjust() {
+        adjustTimeInput(input, dir);
+        delay = Math.max(80, delay * 0.75);
+        timeoutId = setTimeout(repeatAdjust, delay);
+      }
+      timeoutId = setTimeout(repeatAdjust, delay);
+      function stopRepeat() {
+        clearTimeout(timeoutId);
+        commitPresetTimeInput(input);
+        document.removeEventListener('mouseup', stopRepeat);
+        document.removeEventListener('mouseleave', stopRepeat);
+      }
+      document.addEventListener('mouseup', stopRepeat);
+      document.addEventListener('mouseleave', stopRepeat);
+    });
+    peTimeRow.addEventListener('wheel', function(e) {
+      var input = e.target.closest('.time-input');
+      if (!input) return;
+      e.preventDefault();
+      var dir = e.deltaY < 0 ? 1 : -1;
+      adjustTimeInput(input, dir);
+      commitPresetTimeInput(input);
+    }, { passive: false });
+  }
   document.getElementById('pe-colors').addEventListener('click', function(e) {
     var btn = e.target.closest('.color-btn');
     if (!btn) return;
