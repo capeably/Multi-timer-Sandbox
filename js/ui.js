@@ -69,18 +69,66 @@ function getSoundLabel(soundKey) {
   return soundKey;
 }
 
-// ===== Dropdown Synchronization =====
+// ===== Sound Picker =====
+function getSoundItems() {
+  var items = [];
+  items.push({ group: 'Sounds' });
+  items.push({ value: 'sound:alarm', label: 'Alarm' });
+  items.push({ value: 'sound:bells', label: 'Bells' });
+  items.push({ value: 'sound:ding', label: 'Ding' });
+  items.push({ value: 'sound:klaxon', label: 'Klaxon' });
+  items.push({ group: 'Messages' });
+  items.push({ value: 'msg:Get back to work!', label: 'Get back to work!' });
+  items.push({ value: 'msg:Get up and stretch', label: 'Get up and stretch' });
+  items.push({ value: 'msg:Keep going!', label: 'Keep going!' });
+
+  var customMsgs = loadCustomMessages();
+  if (customMsgs.length > 0) {
+    items.push({ group: 'Custom Messages' });
+    customMsgs.forEach(function(m) {
+      items.push({ value: 'cmsg:' + m.id, label: m.name || m.text });
+    });
+  }
+  var customSnds = loadCustomSounds();
+  if (customSnds.length > 0) {
+    items.push({ group: 'Custom Sounds' });
+    customSnds.forEach(function(s) {
+      items.push({ value: 'csnd:' + s.id, label: s.name });
+    });
+  }
+  return items;
+}
+
+function buildSoundPickerPanelHTML(selectedValue) {
+  var items = getSoundItems();
+  var html = '';
+  items.forEach(function(item) {
+    if (item.group) {
+      html += '<div class="sound-picker-group-label">' + escapeHtml(item.group) + '</div>';
+    } else {
+      var sel = item.value === selectedValue ? ' selected' : '';
+      html += '<div class="sound-picker-item' + sel + '" data-value="' + escapeHtml(item.value) + '">' +
+        '<button class="sound-picker-preview" data-action="preview-sound" data-sound="' + escapeHtml(item.value) + '" tabindex="-1" title="Preview" aria-label="Preview ' + escapeHtml(item.label) + '">&#9654;</button>' +
+        '<span class="sound-picker-item-label">' + escapeHtml(item.label) + '</span>' +
+      '</div>';
+    }
+  });
+  return html;
+}
+
+function rebuildSegmentDropdown(segEl, segment) {
+  var picker = segEl.querySelector('.sound-picker');
+  if (!picker) return;
+  var val = getSoundDisplayValue(segment.soundKey);
+  var label = getSoundLabel(segment.soundKey);
+  picker.querySelector('.sound-picker-label').textContent = label;
+  picker.dataset.value = val;
+  picker.querySelector('.sound-picker-panel').innerHTML = buildSoundPickerPanelHTML(val);
+}
+
+// Keep buildDropdownHTML for preset editor (settings modal) compatibility
 function buildDropdownHTML() {
-  var html = '<optgroup label="Time Presets">';
-  html += '<option value="60000">1 minute</option>';
-  html += '<option value="300000">5 minutes</option>';
-  html += '<option value="600000">10 minutes</option>';
-  html += '<option value="900000">15 minutes</option>';
-  html += '<option value="1800000">30 minutes</option>';
-  html += '<option value="2700000">45 minutes</option>';
-  html += '<option value="3600000">1 hour</option>';
-  html += '</optgroup>';
-  html += '<optgroup label="Sounds">';
+  var html = '<optgroup label="Sounds">';
   html += '<option value="sound:alarm">Alarm</option>';
   html += '<option value="sound:bells">Bells</option>';
   html += '<option value="sound:ding">Ding</option>';
@@ -91,7 +139,6 @@ function buildDropdownHTML() {
   html += '<option value="msg:Get up and stretch">Get up and stretch</option>';
   html += '<option value="msg:Keep going!">Keep going!</option>';
   html += '</optgroup>';
-
   var customMsgs = loadCustomMessages();
   if (customMsgs.length > 0) {
     html += '<optgroup label="Custom Messages">';
@@ -100,7 +147,6 @@ function buildDropdownHTML() {
     });
     html += '</optgroup>';
   }
-
   var customSnds = loadCustomSounds();
   if (customSnds.length > 0) {
     html += '<optgroup label="Custom Sounds">';
@@ -109,24 +155,7 @@ function buildDropdownHTML() {
     });
     html += '</optgroup>';
   }
-
   return html;
-}
-
-function rebuildSegmentDropdown(segEl, segment) {
-  var select = segEl.querySelector('.preset-select');
-  if (!select) return;
-  select.innerHTML = buildDropdownHTML();
-  var val = getSoundDisplayValue(segment.soundKey);
-  var matched = false;
-  for (var i = 0; i < select.options.length; i++) {
-    if (select.options[i].value === val) { select.options[i].selected = true; matched = true; break; }
-  }
-  if (!matched && (segment.soundKey.startsWith('cmsg:') || segment.soundKey.startsWith('csnd:'))) {
-    segment.soundKey = 'alarm';
-    select.value = 'sound:alarm';
-    saveTimers();
-  }
 }
 
 // Legacy wrappers for settings.js compatibility
@@ -146,7 +175,7 @@ function rebuildAllDropdowns() {
 }
 
 // ===== Segment Rendering =====
-function createSegmentElement(segment, index, total) {
+function createSegmentElement(segment, index) {
   var row = document.createElement('div');
   row.className = 'segment-row';
   row.dataset.segmentId = segment.id;
@@ -179,7 +208,13 @@ function createSegmentElement(segment, index, total) {
       '</div>' +
     '</div>' +
     '<div class="seg-bottom-row">' +
-      '<select class="preset-select" data-action="seg-preset" aria-label="Presets and sounds"></select>' +
+      '<div class="sound-picker" data-value="">' +
+        '<button class="sound-picker-trigger" data-action="toggle-sound-picker" type="button">' +
+          '<span class="sound-picker-label">Alarm</span>' +
+          '<span class="sound-picker-arrow">&#9660;</span>' +
+        '</button>' +
+        '<div class="sound-picker-panel"></div>' +
+      '</div>' +
       '<button class="btn-icon btn-sound-toggle' + (segment.soundEnabled ? '' : ' muted') + '" data-action="seg-toggle-sound" title="Sound on/off" aria-label="Toggle sound">' +
         '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">' +
           '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>' +
@@ -197,7 +232,7 @@ function renderSegments(card, timer) {
   container.classList.toggle('single-segment', timer.segments.length === 1);
 
   timer.segments.forEach(function(seg, i) {
-    var el = createSegmentElement(seg, i, timer.segments.length);
+    var el = createSegmentElement(seg, i);
     // Mark active/completed
     if (i === timer._activeSegmentIndex && timer.state !== 'idle') {
       el.classList.add('active');
@@ -210,6 +245,7 @@ function renderSegments(card, timer) {
     // Disable time inputs when running
     if (timer.state === 'running') {
       el.querySelectorAll('.time-input').forEach(function(inp) { inp.classList.add('running'); });
+      el.querySelectorAll('.time-input-wrap').forEach(function(wrap) { wrap.classList.add('running'); });
     }
   });
 }
@@ -300,6 +336,8 @@ function updateTimerCard(timer) {
   var fill = card.querySelector('.progress-bar-fill');
   var pct = timer.progressPercent;
   fill.style.width = pct + '%';
+  var progressBar = card.querySelector('.progress-bar-bg');
+  if (progressBar) progressBar.setAttribute('aria-valuenow', Math.round(pct));
 
   var btnPlay = card.querySelector('.btn-play');
   var btnPause = card.querySelector('.btn-pause');

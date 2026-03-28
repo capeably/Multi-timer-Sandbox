@@ -111,13 +111,13 @@
           <input type="checkbox" data-setting="repeatSound">
           <span class="toggle-switch"></span>
         </label>
-        <div class="color-picker" role="group" aria-label="Timer color">
-          <button class="color-btn" data-color="#D4A843" style="background:#D4A843" title="Gold" aria-label="Gold">gold</button>
-          <button class="color-btn" data-color="#4A90D9" style="background:#4A90D9" title="Blue" aria-label="Blue">blue</button>
-          <button class="color-btn" data-color="#5CB85C" style="background:#5CB85C" title="Green" aria-label="Green">green</button>
-          <button class="color-btn" data-color="#D9534F" style="background:#D9534F" title="Red" aria-label="Red">red</button>
-          <button class="color-btn" data-color="#333333" style="background:#333333" title="Black" aria-label="Black">black</button>
-          <button class="color-btn" data-color="#E8E8E8" style="background:#E8E8E8" title="White" aria-label="White">white</button>
+        <div class="color-picker" role="radiogroup" aria-label="Timer color">
+          <button class="color-btn" data-color="#D4A843" style="background:#D4A843" title="Gold" aria-label="Gold" role="radio" aria-checked="false">gold</button>
+          <button class="color-btn" data-color="#4A90D9" style="background:#4A90D9" title="Blue" aria-label="Blue" role="radio" aria-checked="false">blue</button>
+          <button class="color-btn" data-color="#5CB85C" style="background:#5CB85C" title="Green" aria-label="Green" role="radio" aria-checked="false">green</button>
+          <button class="color-btn" data-color="#D9534F" style="background:#D9534F" title="Red" aria-label="Red" role="radio" aria-checked="false">red</button>
+          <button class="color-btn" data-color="#333333" style="background:#333333" title="Black" aria-label="Black" role="radio" aria-checked="false">black</button>
+          <button class="color-btn" data-color="#E8E8E8" style="background:#E8E8E8" title="White" aria-label="White" role="radio" aria-checked="false">white</button>
         </div>
         <button class="btn-save-preset" data-action="save-preset">Save as Preset</button>
       </div>
@@ -147,10 +147,10 @@
       <button class="modal-close" id="settings-modal-close" aria-label="Close">&times;</button>
       <h2 id="settings-modal-title">Settings</h2>
       <div class="settings-tabs" role="tablist">
-        <button class="settings-tab active" data-tab="presets" role="tab" aria-selected="true">Presets</button>
-        <button class="settings-tab" data-tab="messages" role="tab" aria-selected="false">Messages</button>
-        <button class="settings-tab" data-tab="sounds" role="tab" aria-selected="false">Sounds</button>
-        <button class="settings-tab" data-tab="exportimport" role="tab" aria-selected="false">Import / Export</button>
+        <button class="settings-tab active" data-tab="presets" role="tab" aria-selected="true" aria-controls="tab-presets">Presets</button>
+        <button class="settings-tab" data-tab="messages" role="tab" aria-selected="false" aria-controls="tab-messages">Messages</button>
+        <button class="settings-tab" data-tab="sounds" role="tab" aria-selected="false" aria-controls="tab-sounds">Sounds</button>
+        <button class="settings-tab" data-tab="exportimport" role="tab" aria-selected="false" aria-controls="tab-exportimport">Import / Export</button>
       </div>
 
       <!-- Presets Tab -->
@@ -275,13 +275,13 @@
         </div>
         <div class="form-row">
           <label>Color</label>
-          <div class="color-picker" id="pe-colors" role="group" aria-label="Preset color">
-            <button type="button" class="color-btn" data-color="#D4A843" style="background:#D4A843" title="Gold" aria-label="Gold">gold</button>
-            <button type="button" class="color-btn" data-color="#4A90D9" style="background:#4A90D9" title="Blue" aria-label="Blue">blue</button>
-            <button type="button" class="color-btn" data-color="#5CB85C" style="background:#5CB85C" title="Green" aria-label="Green">green</button>
-            <button type="button" class="color-btn" data-color="#D9534F" style="background:#D9534F" title="Red" aria-label="Red">red</button>
-            <button type="button" class="color-btn" data-color="#333333" style="background:#333333" title="Black" aria-label="Black">black</button>
-            <button type="button" class="color-btn" data-color="#E8E8E8" style="background:#E8E8E8" title="White" aria-label="White">white</button>
+          <div class="color-picker" id="pe-colors" role="radiogroup" aria-label="Preset color">
+            <button type="button" class="color-btn" data-color="#D4A843" style="background:#D4A843" title="Gold" aria-label="Gold" role="radio" aria-checked="false">gold</button>
+            <button type="button" class="color-btn" data-color="#4A90D9" style="background:#4A90D9" title="Blue" aria-label="Blue" role="radio" aria-checked="false">blue</button>
+            <button type="button" class="color-btn" data-color="#5CB85C" style="background:#5CB85C" title="Green" aria-label="Green" role="radio" aria-checked="false">green</button>
+            <button type="button" class="color-btn" data-color="#D9534F" style="background:#D9534F" title="Red" aria-label="Red" role="radio" aria-checked="false">red</button>
+            <button type="button" class="color-btn" data-color="#333333" style="background:#333333" title="Black" aria-label="Black" role="radio" aria-checked="false">black</button>
+            <button type="button" class="color-btn" data-color="#E8E8E8" style="background:#E8E8E8" title="White" aria-label="White" role="radio" aria-checked="false">white</button>
           </div>
         </div>
         <label class="toggle-row">

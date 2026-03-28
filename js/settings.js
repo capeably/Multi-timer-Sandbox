@@ -132,7 +132,9 @@ function openPresetEditor(id) {
 
   var colorBtns = document.getElementById('pe-colors').querySelectorAll('.color-btn');
   colorBtns.forEach(function(btn) {
-    btn.classList.toggle('active', btn.dataset.color === p.color);
+    var isSelected = btn.dataset.color === p.color;
+    btn.classList.toggle('active', isSelected);
+    btn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
   });
 
   document.getElementById('pe-repeat').checked = !!p.repeat;
@@ -649,11 +651,11 @@ function attachSettingsModalListeners() {
       var input = wrap.querySelector('.time-input');
       var dir = chevron.dataset.dir === 'up' ? 1 : -1;
       adjustTimeInput(input, dir);
-      var delay = 400;
+      var delay = CHEVRON_INITIAL_DELAY;
       var timeoutId = null;
       function repeatAdjust() {
         adjustTimeInput(input, dir);
-        delay = Math.max(80, delay * 0.75);
+        delay = Math.max(CHEVRON_MIN_DELAY, delay * CHEVRON_ACCEL);
         timeoutId = setTimeout(repeatAdjust, delay);
       }
       timeoutId = setTimeout(repeatAdjust, delay);
@@ -680,7 +682,9 @@ function attachSettingsModalListeners() {
     if (!btn) return;
     document.getElementById('pe-colors').querySelectorAll('.color-btn').forEach(function(b) {
       b.classList.remove('active');
+      b.setAttribute('aria-checked', 'false');
     });
     btn.classList.add('active');
+    btn.setAttribute('aria-checked', 'true');
   });
 }

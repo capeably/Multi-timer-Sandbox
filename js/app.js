@@ -69,9 +69,16 @@ function init() {
   window.addEventListener('beforeunload', flushTimers);
 }
 
+// === Constants ===
+var TICK_INTERVAL = 250;
+var TIMER_REPEAT_DELAY = 1500;
+var CHEVRON_INITIAL_DELAY = 400;
+var CHEVRON_MIN_DELAY = 80;
+var CHEVRON_ACCEL = 0.75;
+var SOUND_PICKER_MAX_HEIGHT = 260;
+
 // === Main Loop ===
 var lastTickTime = 0;
-var TICK_INTERVAL = 250;
 
 function mainLoop(timestamp) {
   if (timestamp - lastTickTime >= TICK_INTERVAL) {
@@ -140,11 +147,19 @@ function handleTimerComplete(timer) {
       renderSegments(document.querySelector('[data-timer-id="' + timer.id + '"]'), timer);
       updateTimerCard(timer);
       persist();
-    }, 1500);
+    }, TIMER_REPEAT_DELAY);
   }
 
   updateTimerCard(timer);
   persist();
+}
+
+// Find index of segment by ID within a timer's segments array; returns -1 if not found
+function findSegmentIndex(timer, segId) {
+  for (var i = 0; i < timer.segments.length; i++) {
+    if (timer.segments[i].id === segId) return i;
+  }
+  return -1;
 }
 
 // Sync all segment durations from DOM inputs (for segments not yet played)
@@ -181,12 +196,8 @@ function commitTimeInput(input) {
   if (!timer || timer.state === 'running') return;
   var segId = segRow.dataset.segmentId;
   if (segId) {
-    for (var i = 0; i < timer.segments.length; i++) {
-      if (timer.segments[i].id === segId) {
-        timer.segments[i].durationMs = readSegmentTimeInputs(segRow);
-        break;
-      }
-    }
+    var idx = findSegmentIndex(timer, segId);
+    if (idx !== -1) timer.segments[idx].durationMs = readSegmentTimeInputs(segRow);
   }
   timer._remainingAtPause = timer.activeSegment.durationMs;
   persist();
@@ -267,9 +278,31 @@ function attachToolbarListeners() {
     });
   });
 
-  document.addEventListener('click', function() {
+  document.addEventListener('click', function(e) {
     dropdownMenu.classList.add('hidden');
     volWrap.classList.add('hidden');
+    if (!e.target.closest('.sound-picker')) closeAllSoundPickers();
+  });
+
+  window.addEventListener('scroll', closeAllSoundPickers, true);
+
+  // Keyboard support for sound pickers
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var openPicker = document.querySelector('.sound-picker.open');
+      if (openPicker) {
+        closeAllSoundPickers();
+        var trigger = openPicker.querySelector('.sound-picker-trigger');
+        if (trigger) trigger.focus();
+        e.stopPropagation();
+      }
+    }
+  });
+}
+
+function closeAllSoundPickers() {
+  document.querySelectorAll('.sound-picker.open').forEach(function(p) {
+    p.classList.remove('open');
   });
 }
 
@@ -421,10 +454,7 @@ function attachGridListeners() {
     // Remove source from array
     var seg = timer.segments.splice(srcIdx, 1)[0];
     // Recalculate target index after removal
-    var insertIdx = -1;
-    for (var i = 0; i < timer.segments.length; i++) {
-      if (timer.segments[i].id === targetRow.dataset.segmentId) { insertIdx = i; break; }
-    }
+    var insertIdx = findSegmentIndex(timer, targetRow.dataset.segmentId);
     if (insertIdx === -1) return;
     // Insert before or after target
     if (segDropPosition === 'after') insertIdx++;
@@ -457,8 +487,33 @@ function attachGridListeners() {
       ctx.timer.color = color;
       applyTitleBarColors(ctx.card, color);
       ctx.card.querySelectorAll('.color-btn').forEach(function(btn) {
-        btn.classList.toggle('active', btn.dataset.color === color);
+        var isSelected = btn.dataset.color === color;
+        btn.classList.toggle('active', isSelected);
+        btn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
       });
+      persist();
+      return;
+    }
+
+    // Sound picker item selection (no data-action, handle before guard)
+    var pickerItem = e.target.closest('.sound-picker-item');
+    if (pickerItem && !e.target.closest('.sound-picker-preview')) {
+      var ctx2 = getTimerFromEvent(e);
+      if (!ctx2) return;
+      var val = pickerItem.dataset.value;
+      var segId2 = getSegmentFromEvent(e);
+      var segIdx2 = segId2 ? findSegmentIndex(ctx2.timer, segId2) : -1;
+      var seg2 = segIdx2 !== -1 ? ctx2.timer.segments[segIdx2] : ctx2.timer.activeSegment;
+      seg2.soundKey = val.startsWith('sound:') ? val.slice(6) : val;
+      var picker2 = pickerItem.closest('.sound-picker');
+      if (picker2) {
+        picker2.querySelector('.sound-picker-label').textContent = pickerItem.querySelector('.sound-picker-item-label').textContent;
+        picker2.dataset.value = val;
+        picker2.classList.remove('open');
+        picker2.querySelectorAll('.sound-picker-item').forEach(function(item) {
+          item.classList.toggle('selected', item.dataset.value === val);
+        });
+      }
       persist();
       return;
     }
@@ -474,15 +529,11 @@ function attachGridListeners() {
 
     // Find which segment this action belongs to (if any)
     var segId = getSegmentFromEvent(e);
-    var segIndex = -1;
-    if (segId) {
-      for (var i = 0; i < timer.segments.length; i++) {
-        if (timer.segments[i].id === segId) { segIndex = i; break; }
-      }
-    }
+    var segIndex = segId ? findSegmentIndex(timer, segId) : -1;
 
     switch (action) {
       case 'play':
+        closeAllSoundPickers();
         initAudio();
         setGlobalVolume(Number(App.volumeSlider.value));
         if (timer.state === 'idle') {
@@ -507,11 +558,13 @@ function attachGridListeners() {
         persist();
         break;
       case 'pause':
+        closeAllSoundPickers();
         timer.pause();
         updateTimerCard(timer);
         persist();
         break;
       case 'reset':
+        closeAllSoundPickers();
         stopRepeatSound();
         timer.reset();
         renderSegments(ctx.card, timer);
@@ -566,6 +619,41 @@ function attachGridListeners() {
           persist();
         }
         break;
+      case 'toggle-sound-picker':
+        var picker = actionEl.closest('.sound-picker');
+        if (picker) {
+          // Close any other open pickers
+          gridEl.querySelectorAll('.sound-picker.open').forEach(function(p) {
+            if (p !== picker) p.classList.remove('open');
+          });
+          var wasOpen = picker.classList.contains('open');
+          picker.classList.toggle('open');
+          if (!wasOpen) {
+            // Position the fixed panel relative to the trigger
+            var panel = picker.querySelector('.sound-picker-panel');
+            var triggerRect = actionEl.getBoundingClientRect();
+            var panelHeight = SOUND_PICKER_MAX_HEIGHT;
+            // Prefer opening upward; if not enough space, open downward
+            if (triggerRect.top > panelHeight + 8) {
+              panel.style.bottom = (window.innerHeight - triggerRect.top + 4) + 'px';
+              panel.style.top = 'auto';
+            } else {
+              panel.style.top = (triggerRect.bottom + 4) + 'px';
+              panel.style.bottom = 'auto';
+            }
+            panel.style.left = triggerRect.left + 'px';
+            panel.style.width = Math.max(240, triggerRect.width) + 'px';
+          }
+        }
+        break;
+      case 'preview-sound':
+        e.stopPropagation();
+        initAudio();
+        setGlobalVolume(Number(App.volumeSlider.value));
+        var soundVal = actionEl.dataset.sound;
+        var soundKey = soundVal.startsWith('sound:') ? soundVal.slice(6) : soundVal;
+        playSound(soundKey);
+        break;
       case 'stop-sound':
         stopRepeatSound();
         timer.reset();
@@ -577,9 +665,10 @@ function attachGridListeners() {
         persist();
         break;
     }
+
   });
 
-  // Change: settings toggles + segment preset select
+  // Change: settings toggles
   gridEl.addEventListener('change', function(e) {
     var settingInput = e.target.closest('[data-setting]');
     if (settingInput) {
@@ -587,36 +676,6 @@ function attachGridListeners() {
       if (!ctx) return;
       var setting = settingInput.dataset.setting;
       ctx.timer[setting] = settingInput.checked;
-      persist();
-      return;
-    }
-
-    if (e.target.matches('.preset-select')) {
-      var ctx = getTimerFromEvent(e);
-      if (!ctx) return;
-      var val = e.target.value;
-
-      // Find which segment this select belongs to
-      var segId = getSegmentFromEvent(e);
-      var seg = null;
-      if (segId) {
-        for (var i = 0; i < ctx.timer.segments.length; i++) {
-          if (ctx.timer.segments[i].id === segId) { seg = ctx.timer.segments[i]; break; }
-        }
-      }
-      if (!seg) seg = ctx.timer.activeSegment;
-
-      if (val.startsWith('sound:') || val.startsWith('msg:') || val.startsWith('cmsg:') || val.startsWith('csnd:')) {
-        seg.soundKey = val.startsWith('sound:') ? val.slice(6) : val;
-      } else {
-        var ms = Number(val);
-        if (ms > 0 && ctx.timer.state !== 'running') {
-          seg.durationMs = ms;
-          // Update the time inputs for this segment
-          var segRow = e.target.closest('.segment-row');
-          if (segRow) setSegmentTimeInputs(segRow, ms);
-        }
-      }
       persist();
     }
   });
@@ -697,11 +756,11 @@ function attachGridListeners() {
     var dir = chevron.dataset.dir === 'up' ? 1 : -1;
     adjustTimeInput(input, dir);
 
-    var delay = 400;
+    var delay = CHEVRON_INITIAL_DELAY;
     var timeoutId = null;
     function repeatAdjust() {
       adjustTimeInput(input, dir);
-      delay = Math.max(80, delay * 0.75);
+      delay = Math.max(CHEVRON_MIN_DELAY, delay * CHEVRON_ACCEL);
       timeoutId = setTimeout(repeatAdjust, delay);
     }
     timeoutId = setTimeout(repeatAdjust, delay);
