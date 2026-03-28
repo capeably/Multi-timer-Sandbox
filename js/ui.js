@@ -159,7 +159,6 @@ function createSegmentElement(segment, index, total) {
   row.innerHTML =
     '<span class="seg-drag-handle" title="Reorder segment">&#9776;</span>' +
     '<button class="seg-delete-btn" data-action="delete-segment" title="Remove segment" aria-label="Remove segment">&times;</button>' +
-    (total > 1 ? '<div class="seg-label">Segment ' + (index + 1) + '</div>' : '') +
     '<div class="seg-time-display">' +
       '<input type="text" class="time-input" data-unit="hours" value="' + String(h).padStart(2, '0') + '" maxlength="2" inputmode="numeric" aria-label="Hours">' +
       '<span class="time-sep" aria-hidden="true">:</span>' +

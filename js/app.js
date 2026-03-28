@@ -14,6 +14,24 @@ function announce(message) {
   if (App.liveRegion) App.liveRegion.textContent = message;
 }
 
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('multitimer_theme', theme); } catch(e) {}
+}
+
+function toggleTheme() {
+  var current = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// Apply saved theme immediately (before init)
+(function() {
+  try {
+    var saved = localStorage.getItem('multitimer_theme');
+    if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  } catch(e) {}
+})();
+
 function init() {
   var configs = loadTimers();
   if (configs.length === 0) configs.push(getDefaultTimerConfig());
@@ -178,6 +196,10 @@ function attachToolbarListeners() {
     saveVolume(val);
   });
 
+  document.getElementById('btn-theme').addEventListener('click', function() {
+    toggleTheme();
+  });
+
   document.getElementById('btn-info').addEventListener('click', function() {
     document.getElementById('info-modal').classList.remove('hidden');
   });
@@ -254,6 +276,7 @@ function attachGridListeners() {
   });
 
   gridEl.addEventListener('dragover', function(e) {
+    if (segDragSrcId) return; // Skip card-level styling during segment drag
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     var card = e.target.closest('.timer-card');
@@ -313,14 +336,28 @@ function attachGridListeners() {
     e.dataTransfer.setData('text/plain', 'seg:' + segDragSrcId);
   }, true);
 
+  var segDropPosition = null; // 'before' or 'after'
+
   gridEl.addEventListener('dragover', function(e) {
     if (!segDragSrcId) return;
     var segRow = e.target.closest('.segment-row');
     if (!segRow || segRow.dataset.segmentId === segDragSrcId) return;
     e.preventDefault();
     var container = segRow.closest('.segments-container');
-    container.querySelectorAll('.seg-drag-over').forEach(function(el) { el.classList.remove('seg-drag-over'); });
-    segRow.classList.add('seg-drag-over');
+    container.querySelectorAll('.seg-drag-over-top, .seg-drag-over-bottom').forEach(function(el) {
+      el.classList.remove('seg-drag-over-top');
+      el.classList.remove('seg-drag-over-bottom');
+    });
+    // Determine if cursor is in top or bottom half
+    var rect = segRow.getBoundingClientRect();
+    var midY = rect.top + rect.height / 2;
+    if (e.clientY < midY) {
+      segRow.classList.add('seg-drag-over-top');
+      segDropPosition = 'before';
+    } else {
+      segRow.classList.add('seg-drag-over-bottom');
+      segDropPosition = 'after';
+    }
   });
 
   gridEl.addEventListener('drop', function(e) {
@@ -341,19 +378,30 @@ function attachGridListeners() {
     });
     if (srcIdx === -1 || tgtIdx === -1) return;
 
-    // Swap segments
-    var temp = timer.segments[srcIdx];
-    timer.segments[srcIdx] = timer.segments[tgtIdx];
-    timer.segments[tgtIdx] = temp;
+    // Remove source from array
+    var seg = timer.segments.splice(srcIdx, 1)[0];
+    // Recalculate target index after removal
+    var insertIdx = -1;
+    for (var i = 0; i < timer.segments.length; i++) {
+      if (timer.segments[i].id === targetRow.dataset.segmentId) { insertIdx = i; break; }
+    }
+    if (insertIdx === -1) return;
+    // Insert before or after target
+    if (segDropPosition === 'after') insertIdx++;
+    timer.segments.splice(insertIdx, 0, seg);
 
     renderSegments(card, timer);
     persist();
+    segDropPosition = null;
   });
 
   gridEl.addEventListener('dragend', function(e) {
     if (segDragSrcId) {
       gridEl.querySelectorAll('.seg-dragging').forEach(function(el) { el.classList.remove('seg-dragging'); });
-      gridEl.querySelectorAll('.seg-drag-over').forEach(function(el) { el.classList.remove('seg-drag-over'); });
+      gridEl.querySelectorAll('.seg-drag-over-top, .seg-drag-over-bottom').forEach(function(el) {
+        el.classList.remove('seg-drag-over-top');
+        el.classList.remove('seg-drag-over-bottom');
+      });
       segDragSrcId = null;
       segDragTimerId = null;
     }
