@@ -24,11 +24,28 @@ function toggleTheme() {
   applyTheme(current === 'dark' ? 'light' : 'dark');
 }
 
-// Apply saved theme immediately (before init)
+function applyCompact(enabled) {
+  if (enabled) {
+    document.documentElement.setAttribute('data-compact', 'true');
+  } else {
+    document.documentElement.removeAttribute('data-compact');
+  }
+  try { localStorage.setItem('multitimer_compact', enabled ? 'true' : ''); } catch(e) {}
+}
+
+function toggleCompact() {
+  var isCompact = document.documentElement.hasAttribute('data-compact');
+  applyCompact(!isCompact);
+}
+
+// Apply saved settings immediately (before init)
 (function() {
   try {
     var saved = localStorage.getItem('multitimer_theme');
     if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    if (localStorage.getItem('multitimer_compact') === 'true') {
+      document.documentElement.setAttribute('data-compact', 'true');
+    }
   } catch(e) {}
 })();
 
@@ -76,6 +93,7 @@ var CHEVRON_INITIAL_DELAY = 400;
 var CHEVRON_MIN_DELAY = 80;
 var CHEVRON_ACCEL = 0.75;
 var SOUND_PICKER_MAX_HEIGHT = 260;
+var BG_CHECK_INTERVAL = 1000;
 
 // === Main Loop ===
 var lastTickTime = 0;
@@ -98,8 +116,20 @@ function startMainLoop() {
   App.loopId = requestAnimationFrame(mainLoop);
 }
 
+// Background tab watchdog — setInterval still fires (~1s) when RAF is paused
+setInterval(function() {
+  if (document.visibilityState === 'visible') return;
+  App.timers.forEach(function(timer) {
+    if (timer.state === 'running' && timer.remainingMs <= 0) {
+      handleTimerComplete(timer);
+    }
+  });
+}, BG_CHECK_INTERVAL);
+
 document.addEventListener('visibilitychange', function() {
   if (document.visibilityState === 'visible') {
+    // Resume audio context in case it was suspended in background
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
     App.timers.forEach(function(timer) {
       if (timer.state === 'running' && timer.remainingMs <= 0) {
         handleTimerComplete(timer);
@@ -186,6 +216,20 @@ function adjustTimeInput(input, dir) {
   input.value = String(val).padStart(2, '0');
 }
 
+function snapTimeInput(input, dir) {
+  var unit = input.dataset.unit;
+  var max = unit === 'hours' ? 99 : 59;
+  var val = parseInt(input.value, 10) || 0;
+  if (dir > 0) {
+    val = Math.ceil((val + 1) / 5) * 5;
+  } else {
+    val = Math.floor((val - 1) / 5) * 5;
+  }
+  if (val > max) val = 0;
+  if (val < 0) val = max;
+  input.value = String(val).padStart(2, '0');
+}
+
 function commitTimeInput(input) {
   var segRow = input.closest('.segment-row');
   if (!segRow) return;
@@ -250,6 +294,9 @@ function attachToolbarListeners() {
   document.getElementById('btn-theme').addEventListener('click', function() {
     toggleTheme();
   });
+  document.getElementById('btn-compact').addEventListener('click', function() {
+    toggleCompact();
+  });
 
   document.getElementById('btn-info').addEventListener('click', function() {
     document.getElementById('info-modal').classList.remove('hidden');
@@ -284,7 +331,10 @@ function attachToolbarListeners() {
     if (!e.target.closest('.sound-picker')) closeAllSoundPickers();
   });
 
-  window.addEventListener('scroll', closeAllSoundPickers, true);
+  window.addEventListener('scroll', function(e) {
+    if (e.target.closest && e.target.closest('.sound-picker-panel')) return;
+    closeAllSoundPickers();
+  }, true);
 
   // Keyboard support for sound pickers
   document.addEventListener('keydown', function(e) {
@@ -307,112 +357,69 @@ function closeAllSoundPickers() {
 }
 
 // === Timer Grid Event Delegation ===
-function attachGridListeners() {
-  var gridEl = document.getElementById('timer-grid');
-  var dragSrcId = null;
+// Shared drag state (used by both card and segment drag handlers)
+var dragSrcId = null;
+var segDragSrcId = null;
+var segDragTimerId = null;
+var segDropPosition = null;
 
-  // === Card-level drag (reorder timers) ===
-  gridEl.addEventListener('mousedown', function(e) {
-    // Segment drag handle
-    var segHandle = e.target.closest('.seg-drag-handle');
-    if (segHandle) {
-      var segRow = segHandle.closest('.segment-row');
-      if (segRow) segRow.draggable = true;
-      var card = e.target.closest('.timer-card');
-      if (card) card.draggable = false;
-      return;
-    }
-    // Card drag handle
-    var handle = e.target.closest('.drag-handle');
-    var card = e.target.closest('.timer-card');
-    if (card) card.draggable = !!handle;
-    // Reset all segment rows draggable
-    if (card) card.querySelectorAll('.segment-row').forEach(function(r) { r.draggable = false; });
-  });
-
-  gridEl.addEventListener('dragstart', function(e) {
-    // Segment drag is handled separately
-    if (e.target.closest('.seg-drag-handle')) return;
-    var card = e.target.closest('.timer-card');
-    if (!card) return;
-    dragSrcId = card.dataset.timerId;
-    card.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', dragSrcId);
-  });
-
-  gridEl.addEventListener('dragend', function(e) {
-    var card = e.target.closest('.timer-card');
-    if (card) card.classList.remove('dragging');
-    gridEl.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
-    dragSrcId = null;
-  });
-
-  gridEl.addEventListener('dragover', function(e) {
-    if (segDragSrcId) return; // Skip card-level styling during segment drag
+function handleGridMousedown(e) {
+  // Chevron hold-to-repeat
+  var chevron = e.target.closest('.time-chevron');
+  if (chevron) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    var wrap = chevron.closest('.time-input-wrap');
+    var input = wrap.querySelector('.time-input');
+    if (input.classList.contains('running')) return;
+    var dir = chevron.dataset.dir === 'up' ? 1 : -1;
+    startChevronRepeat(input, dir, commitTimeInput);
+    return;
+  }
+
+  // Segment drag handle
+  var segHandle = e.target.closest('.seg-drag-handle');
+  if (segHandle) {
+    var segRow = segHandle.closest('.segment-row');
+    if (segRow) segRow.draggable = true;
     var card = e.target.closest('.timer-card');
-    if (card && card.dataset.timerId !== dragSrcId) {
-      gridEl.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
-      card.classList.add('drag-over');
-    }
-  });
+    if (card) card.draggable = false;
+    return;
+  }
 
-  gridEl.addEventListener('dragleave', function(e) {
-    var card = e.target.closest('.timer-card');
-    if (card) card.classList.remove('drag-over');
-  });
+  // Card drag handle
+  var handle = e.target.closest('.drag-handle');
+  var card = e.target.closest('.timer-card');
+  if (card) card.draggable = !!handle;
+  if (card) card.querySelectorAll('.segment-row').forEach(function(r) { r.draggable = false; });
+}
 
-  gridEl.addEventListener('drop', function(e) {
-    e.preventDefault();
-    var targetCard = e.target.closest('.timer-card');
-    if (!targetCard || !dragSrcId) return;
-    var targetId = targetCard.dataset.timerId;
-    if (targetId === dragSrcId) return;
-
-    var srcCard = gridEl.querySelector('[data-timer-id="' + dragSrcId + '"]');
-    if (!srcCard) return;
-
-    // Swap positions
-    var placeholder = document.createElement('div');
-    gridEl.insertBefore(placeholder, srcCard);
-    gridEl.insertBefore(srcCard, targetCard);
-    gridEl.insertBefore(targetCard, placeholder);
-    gridEl.removeChild(placeholder);
-
-    targetCard.classList.remove('drag-over');
-
-    var cards = gridEl.querySelectorAll('.timer-card');
-    var newTimers = new Map();
-    cards.forEach(function(c, i) {
-      var id = c.dataset.timerId;
-      var timer = App.timers.get(id);
-      if (timer) { timer.order = i; newTimers.set(id, timer); }
-    });
-    App.timers = newTimers;
-    persist();
-  });
-
-  // === Segment drag (reorder segments within a timer) ===
-  var segDragSrcId = null;
-  var segDragTimerId = null;
-
-  gridEl.addEventListener('dragstart', function(e) {
-    var segRow = e.target.closest('.segment-row[draggable="true"]');
-    if (!segRow) return;
+function handleGridDragStart(e) {
+  // Segment drag
+  var segRow = e.target.closest('.segment-row[draggable="true"]');
+  if (segRow) {
     e.stopPropagation();
     segDragSrcId = segRow.dataset.segmentId;
     segDragTimerId = segRow.closest('.timer-card').dataset.timerId;
     segRow.classList.add('seg-dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', 'seg:' + segDragSrcId);
-  }, true);
+    return;
+  }
 
-  var segDropPosition = null; // 'before' or 'after'
+  // Card drag
+  var card = e.target.closest('.timer-card');
+  if (!card) return;
+  dragSrcId = card.dataset.timerId;
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragSrcId);
+}
 
-  gridEl.addEventListener('dragover', function(e) {
-    if (!segDragSrcId) return;
+function handleGridDragOver(e) {
+  var gridEl = document.getElementById('timer-grid');
+
+  // Segment drag-over
+  if (segDragSrcId) {
     var segRow = e.target.closest('.segment-row');
     if (!segRow || segRow.dataset.segmentId === segDragSrcId) return;
     e.preventDefault();
@@ -421,7 +428,6 @@ function attachGridListeners() {
       el.classList.remove('seg-drag-over-top');
       el.classList.remove('seg-drag-over-bottom');
     });
-    // Determine if cursor is in top or bottom half
     var rect = segRow.getBoundingClientRect();
     var midY = rect.top + rect.height / 2;
     if (e.clientY < midY) {
@@ -431,10 +437,24 @@ function attachGridListeners() {
       segRow.classList.add('seg-drag-over-bottom');
       segDropPosition = 'after';
     }
-  });
+    return;
+  }
 
-  gridEl.addEventListener('drop', function(e) {
-    if (!segDragSrcId) return;
+  // Card drag-over
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  var card = e.target.closest('.timer-card');
+  if (card && card.dataset.timerId !== dragSrcId) {
+    gridEl.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+    card.classList.add('drag-over');
+  }
+}
+
+function handleGridDrop(e) {
+  var gridEl = document.getElementById('timer-grid');
+
+  // Segment drop
+  if (segDragSrcId) {
     e.preventDefault();
     e.stopPropagation();
     var targetRow = e.target.closest('.segment-row');
@@ -451,339 +471,351 @@ function attachGridListeners() {
     });
     if (srcIdx === -1 || tgtIdx === -1) return;
 
-    // Remove source from array
     var seg = timer.segments.splice(srcIdx, 1)[0];
-    // Recalculate target index after removal
     var insertIdx = findSegmentIndex(timer, targetRow.dataset.segmentId);
     if (insertIdx === -1) return;
-    // Insert before or after target
     if (segDropPosition === 'after') insertIdx++;
     timer.segments.splice(insertIdx, 0, seg);
 
     renderSegments(card, timer);
     persist();
     segDropPosition = null;
+    return;
+  }
+
+  // Card drop
+  e.preventDefault();
+  var targetCard = e.target.closest('.timer-card');
+  if (!targetCard || !dragSrcId) return;
+  var targetId = targetCard.dataset.timerId;
+  if (targetId === dragSrcId) return;
+
+  var srcCard = gridEl.querySelector('[data-timer-id="' + dragSrcId + '"]');
+  if (!srcCard) return;
+
+  var placeholder = document.createElement('div');
+  gridEl.insertBefore(placeholder, srcCard);
+  gridEl.insertBefore(srcCard, targetCard);
+  gridEl.insertBefore(targetCard, placeholder);
+  gridEl.removeChild(placeholder);
+
+  targetCard.classList.remove('drag-over');
+
+  var cards = gridEl.querySelectorAll('.timer-card');
+  var newTimers = new Map();
+  cards.forEach(function(c, i) {
+    var id = c.dataset.timerId;
+    var timer = App.timers.get(id);
+    if (timer) { timer.order = i; newTimers.set(id, timer); }
   });
+  App.timers = newTimers;
+  persist();
+}
 
-  gridEl.addEventListener('dragend', function(e) {
-    if (segDragSrcId) {
-      gridEl.querySelectorAll('.seg-dragging').forEach(function(el) { el.classList.remove('seg-dragging'); });
-      gridEl.querySelectorAll('.seg-drag-over-top, .seg-drag-over-bottom').forEach(function(el) {
-        el.classList.remove('seg-drag-over-top');
-        el.classList.remove('seg-drag-over-bottom');
-      });
-      segDragSrcId = null;
-      segDragTimerId = null;
-    }
-  });
+function handleGridDragEnd(e) {
+  var gridEl = document.getElementById('timer-grid');
 
-  // Click: actions + color buttons
-  gridEl.addEventListener('click', function(e) {
-    var colorBtn = e.target.closest('.color-btn');
-    if (colorBtn) {
-      var ctx = getTimerFromEvent(e);
-      if (!ctx) return;
-      var color = colorBtn.dataset.color;
-      ctx.timer.color = color;
-      applyTitleBarColors(ctx.card, color);
-      ctx.card.querySelectorAll('.color-btn').forEach(function(btn) {
-        var isSelected = btn.dataset.color === color;
-        btn.classList.toggle('active', isSelected);
-        btn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
-      });
-      persist();
-      return;
-    }
+  if (segDragSrcId) {
+    gridEl.querySelectorAll('.seg-dragging').forEach(function(el) { el.classList.remove('seg-dragging'); });
+    gridEl.querySelectorAll('.seg-drag-over-top, .seg-drag-over-bottom').forEach(function(el) {
+      el.classList.remove('seg-drag-over-top');
+      el.classList.remove('seg-drag-over-bottom');
+    });
+    segDragSrcId = null;
+    segDragTimerId = null;
+    return;
+  }
 
-    // Sound picker item selection (no data-action, handle before guard)
-    var pickerItem = e.target.closest('.sound-picker-item');
-    if (pickerItem && !e.target.closest('.sound-picker-preview')) {
-      var ctx2 = getTimerFromEvent(e);
-      if (!ctx2) return;
-      var val = pickerItem.dataset.value;
-      var segId2 = getSegmentFromEvent(e);
-      var segIdx2 = segId2 ? findSegmentIndex(ctx2.timer, segId2) : -1;
-      var seg2 = segIdx2 !== -1 ? ctx2.timer.segments[segIdx2] : ctx2.timer.activeSegment;
-      seg2.soundKey = val.startsWith('sound:') ? val.slice(6) : val;
-      var picker2 = pickerItem.closest('.sound-picker');
-      if (picker2) {
-        picker2.querySelector('.sound-picker-label').textContent = pickerItem.querySelector('.sound-picker-item-label').textContent;
-        picker2.dataset.value = val;
-        picker2.classList.remove('open');
-        picker2.querySelectorAll('.sound-picker-item').forEach(function(item) {
-          item.classList.toggle('selected', item.dataset.value === val);
-        });
-      }
-      persist();
-      return;
-    }
+  var card = e.target.closest('.timer-card');
+  if (card) card.classList.remove('dragging');
+  gridEl.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+  dragSrcId = null;
+}
 
-    var actionEl = e.target.closest('[data-action]');
-    if (!actionEl) return;
+function handleGridDragLeave(e) {
+  var card = e.target.closest('.timer-card');
+  if (card) card.classList.remove('drag-over');
+}
 
+function handleGridClick(e) {
+  var gridEl = document.getElementById('timer-grid');
+
+  var colorBtn = e.target.closest('.color-btn');
+  if (colorBtn) {
     var ctx = getTimerFromEvent(e);
     if (!ctx) return;
-    var timer = ctx.timer;
-    var timerId = ctx.timerId;
-    var action = actionEl.dataset.action;
+    var color = colorBtn.dataset.color;
+    ctx.timer.color = color;
+    applyTitleBarColors(ctx.card, color);
+    ctx.card.querySelectorAll('.color-btn').forEach(function(btn) {
+      var isSelected = btn.dataset.color === color;
+      btn.classList.toggle('active', isSelected);
+      btn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+    });
+    persist();
+    return;
+  }
 
-    // Find which segment this action belongs to (if any)
-    var segId = getSegmentFromEvent(e);
-    var segIndex = segId ? findSegmentIndex(timer, segId) : -1;
+  // Sound picker item selection
+  var pickerItem = e.target.closest('.sound-picker-item');
+  if (pickerItem && !e.target.closest('.sound-picker-preview')) {
+    var pickerCtx = getTimerFromEvent(e);
+    if (!pickerCtx) return;
+    var val = pickerItem.dataset.value;
+    var pickerSegId = getSegmentFromEvent(e);
+    var pickerSegIdx = pickerSegId ? findSegmentIndex(pickerCtx.timer, pickerSegId) : -1;
+    var pickerSeg = pickerSegIdx !== -1 ? pickerCtx.timer.segments[pickerSegIdx] : pickerCtx.timer.activeSegment;
+    pickerSeg.soundKey = val.startsWith('sound:') ? val.slice(6) : val;
+    var pickerEl = pickerItem.closest('.sound-picker');
+    if (pickerEl) {
+      pickerEl.querySelector('.sound-picker-label').textContent = pickerItem.querySelector('.sound-picker-item-label').textContent;
+      pickerEl.dataset.value = val;
+      pickerEl.classList.remove('open');
+      pickerEl.querySelectorAll('.sound-picker-item').forEach(function(item) {
+        item.classList.toggle('selected', item.dataset.value === val);
+      });
+    }
+    persist();
+    return;
+  }
 
-    switch (action) {
-      case 'play':
-        closeAllSoundPickers();
-        initAudio();
-        setGlobalVolume(Number(App.volumeSlider.value));
-        if (timer.state === 'idle') {
-          // Sync all segment durations from DOM before starting
-          var segEls = ctx.card.querySelectorAll('.segment-row');
-          segEls.forEach(function(el, i) {
-            if (timer.segments[i]) {
-              var ms = readSegmentTimeInputs(el);
-              if (ms > 0) timer.segments[i].durationMs = ms;
-            }
-          });
-          timer._remainingAtPause = timer.activeSegment.durationMs;
-          timer.start();
-        } else if (timer.state === 'paused') {
-          timer.resume();
-        } else if (timer.state === 'completed') {
-          stopRepeatSound();
-          timer.reset();
-          renderSegments(ctx.card, timer);
-        }
-        updateTimerCard(timer);
-        persist();
-        break;
-      case 'pause':
-        closeAllSoundPickers();
-        timer.pause();
-        updateTimerCard(timer);
-        persist();
-        break;
-      case 'reset':
-        closeAllSoundPickers();
+  var actionEl = e.target.closest('[data-action]');
+  if (!actionEl) return;
+
+  var ctx = getTimerFromEvent(e);
+  if (!ctx) return;
+  var timer = ctx.timer;
+  var timerId = ctx.timerId;
+  var action = actionEl.dataset.action;
+  var segId = getSegmentFromEvent(e);
+  var segIndex = segId ? findSegmentIndex(timer, segId) : -1;
+
+  switch (action) {
+    case 'play':
+      closeAllSoundPickers();
+      initAudio();
+      setGlobalVolume(Number(App.volumeSlider.value));
+      if (timer.state === 'idle') {
+        var segEls = ctx.card.querySelectorAll('.segment-row');
+        segEls.forEach(function(el, i) {
+          if (timer.segments[i]) {
+            var ms = readSegmentTimeInputs(el);
+            if (ms > 0) timer.segments[i].durationMs = ms;
+          }
+        });
+        timer._remainingAtPause = timer.activeSegment.durationMs;
+        timer.start();
+      } else if (timer.state === 'paused') {
+        timer.resume();
+      } else if (timer.state === 'completed') {
         stopRepeatSound();
         timer.reset();
+        if (timer.repeat) timer.start();
         renderSegments(ctx.card, timer);
-        updateTimerCard(timer);
-        persist();
-        break;
-      case 'settings':
-        showSettingsPanel(timerId);
-        break;
-      case 'save-preset':
-        saveTimerAsPreset(timerId);
-        break;
-      case 'delete':
+      }
+      updateTimerCard(timer);
+      persist();
+      break;
+    case 'pause':
+      closeAllSoundPickers();
+      timer.pause();
+      updateTimerCard(timer);
+      persist();
+      break;
+    case 'reset':
+      closeAllSoundPickers();
+      stopRepeatSound();
+      timer.reset();
+      renderSegments(ctx.card, timer);
+      updateTimerCard(timer);
+      persist();
+      break;
+    case 'settings':
+      showSettingsPanel(timerId);
+      break;
+    case 'save-preset':
+      saveTimerAsPreset(timerId);
+      break;
+    case 'delete':
+      stopRepeatSound();
+      App.timers.delete(timerId);
+      removeTimerCard(timerId);
+      persist();
+      break;
+    case 'delete-x':
+      if (actionEl.classList.contains('confirm')) {
         stopRepeatSound();
         App.timers.delete(timerId);
         removeTimerCard(timerId);
         persist();
-        break;
-      case 'delete-x':
-        if (actionEl.classList.contains('confirm')) {
-          stopRepeatSound();
-          App.timers.delete(timerId);
-          removeTimerCard(timerId);
-          persist();
-        } else {
-          actionEl.classList.add('confirm');
-          actionEl.textContent = 'Delete?';
-          actionEl._confirmTimeout = setTimeout(function() {
-            actionEl.classList.remove('confirm');
-            actionEl.textContent = '\u00D7';
-          }, 3000);
-        }
-        break;
-      case 'add-segment':
-        if (timer.state !== 'idle') break;
-        timer.addSegment();
-        renderSegments(ctx.card, timer);
-        persist();
-        break;
-      case 'delete-segment':
-        if (timer.state !== 'idle') break;
-        if (segId && timer.segments.length > 1) {
-          timer.removeSegment(segId);
-          renderSegments(ctx.card, timer);
-          persist();
-        }
-        break;
-      case 'seg-toggle-sound':
-        if (segIndex >= 0) {
-          timer.segments[segIndex].soundEnabled = !timer.segments[segIndex].soundEnabled;
-          actionEl.classList.toggle('muted', !timer.segments[segIndex].soundEnabled);
-          persist();
-        }
-        break;
-      case 'toggle-sound-picker':
-        var picker = actionEl.closest('.sound-picker');
-        if (picker) {
-          // Close any other open pickers
-          gridEl.querySelectorAll('.sound-picker.open').forEach(function(p) {
-            if (p !== picker) p.classList.remove('open');
-          });
-          var wasOpen = picker.classList.contains('open');
-          picker.classList.toggle('open');
-          if (!wasOpen) {
-            // Position the fixed panel relative to the trigger
-            var panel = picker.querySelector('.sound-picker-panel');
-            var triggerRect = actionEl.getBoundingClientRect();
-            var panelHeight = SOUND_PICKER_MAX_HEIGHT;
-            // Prefer opening upward; if not enough space, open downward
-            if (triggerRect.top > panelHeight + 8) {
-              panel.style.bottom = (window.innerHeight - triggerRect.top + 4) + 'px';
-              panel.style.top = 'auto';
-            } else {
-              panel.style.top = (triggerRect.bottom + 4) + 'px';
-              panel.style.bottom = 'auto';
-            }
-            panel.style.left = triggerRect.left + 'px';
-            panel.style.width = Math.max(240, triggerRect.width) + 'px';
-          }
-        }
-        break;
-      case 'preview-sound':
-        e.stopPropagation();
-        initAudio();
-        setGlobalVolume(Number(App.volumeSlider.value));
-        var soundVal = actionEl.dataset.sound;
-        var soundKey = soundVal.startsWith('sound:') ? soundVal.slice(6) : soundVal;
-        playSound(soundKey);
-        break;
-      case 'stop-sound':
-        stopRepeatSound();
-        timer.reset();
-        if (timer.repeat) {
-          timer.start();
-        }
-        renderSegments(ctx.card, timer);
-        updateTimerCard(timer);
-        persist();
-        break;
-    }
-
-  });
-
-  // Change: settings toggles
-  gridEl.addEventListener('change', function(e) {
-    var settingInput = e.target.closest('[data-setting]');
-    if (settingInput) {
-      var ctx = getTimerFromEvent(e);
-      if (!ctx) return;
-      var setting = settingInput.dataset.setting;
-      ctx.timer[setting] = settingInput.checked;
-      persist();
-    }
-  });
-
-  // Blur: time input validation + title save
-  gridEl.addEventListener('blur', function(e) {
-    if (e.target.matches('.time-input')) {
-      var ctx = getTimerFromEvent(e);
-      if (!ctx || ctx.timer.state === 'running') return;
-      var unit = e.target.dataset.unit;
-      var val = parseInt(e.target.value, 10) || 0;
-      if (unit === 'hours') val = Math.min(99, Math.max(0, val));
-      else val = Math.min(59, Math.max(0, val));
-      e.target.value = String(val).padStart(2, '0');
-      commitTimeInput(e.target);
-      return;
-    }
-
-    var titleEl = e.target.closest('.timer-title');
-    if (titleEl && titleEl.contentEditable === 'true') {
-      titleEl.contentEditable = 'false';
-      var ctx = getTimerFromEvent(e);
-      if (!ctx) return;
-      ctx.timer.title = titleEl.textContent.trim() || 'Timer';
-      titleEl.textContent = ctx.timer.title;
-      persist();
-    }
-  }, true);
-
-  gridEl.addEventListener('focus', function(e) {
-    if (!e.target.matches('.time-input')) return;
-    var ctx = getTimerFromEvent(e);
-    if (ctx && ctx.timer.state === 'running') return;
-    e.target.select();
-  }, true);
-
-  // Keydown: time input + title editing
-  gridEl.addEventListener('keydown', function(e) {
-    if (e.target.matches('.time-input')) {
-      if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
-      if (e.key === 'ArrowUp') { e.preventDefault(); adjustTimeInput(e.target, 1); commitTimeInput(e.target); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); adjustTimeInput(e.target, -1); commitTimeInput(e.target); return; }
-      if (!/^\d$/.test(e.key) && ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'].indexOf(e.key) === -1) {
-        e.preventDefault();
+      } else {
+        actionEl.classList.add('confirm');
+        actionEl.textContent = 'Delete?';
+        actionEl._confirmTimeout = setTimeout(function() {
+          actionEl.classList.remove('confirm');
+          actionEl.textContent = '\u00D7';
+        }, 3000);
       }
-      return;
-    }
+      break;
+    case 'add-segment':
+      if (timer.state !== 'idle') break;
+      timer.addSegment();
+      renderSegments(ctx.card, timer);
+      persist();
+      break;
+    case 'delete-segment':
+      if (timer.state !== 'idle') break;
+      if (segId && timer.segments.length > 1) {
+        timer.removeSegment(segId);
+        renderSegments(ctx.card, timer);
+        persist();
+      }
+      break;
+    case 'seg-toggle-sound':
+      if (segIndex >= 0) {
+        timer.segments[segIndex].soundEnabled = !timer.segments[segIndex].soundEnabled;
+        actionEl.classList.toggle('muted', !timer.segments[segIndex].soundEnabled);
+        persist();
+      }
+      break;
+    case 'toggle-sound-picker':
+      var picker = actionEl.closest('.sound-picker');
+      if (picker) {
+        gridEl.querySelectorAll('.sound-picker.open').forEach(function(p) {
+          if (p !== picker) p.classList.remove('open');
+        });
+        var wasOpen = picker.classList.contains('open');
+        picker.classList.toggle('open');
+        if (!wasOpen) {
+          var panel = picker.querySelector('.sound-picker-panel');
+          var triggerRect = actionEl.getBoundingClientRect();
+          var panelHeight = SOUND_PICKER_MAX_HEIGHT;
+          if (triggerRect.top > panelHeight + 8) {
+            panel.style.bottom = (window.innerHeight - triggerRect.top + 4) + 'px';
+            panel.style.top = 'auto';
+          } else {
+            panel.style.top = (triggerRect.bottom + 4) + 'px';
+            panel.style.bottom = 'auto';
+          }
+          panel.style.left = triggerRect.left + 'px';
+          panel.style.width = Math.max(240, triggerRect.width) + 'px';
+        }
+      }
+      break;
+    case 'preview-sound':
+      e.stopPropagation();
+      initAudio();
+      setGlobalVolume(Number(App.volumeSlider.value));
+      var soundVal = actionEl.dataset.sound;
+      var soundKey = soundVal.startsWith('sound:') ? soundVal.slice(6) : soundVal;
+      playSound(soundKey);
+      break;
+    case 'stop-sound':
+      stopRepeatSound();
+      timer.reset();
+      if (timer.repeat) timer.start();
+      renderSegments(ctx.card, timer);
+      updateTimerCard(timer);
+      persist();
+      break;
+  }
+}
 
-    var titleEl = e.target.closest('.timer-title');
-    if (titleEl && titleEl.contentEditable === 'true' && e.key === 'Enter') {
+function handleGridChange(e) {
+  var settingInput = e.target.closest('[data-setting]');
+  if (settingInput) {
+    var ctx = getTimerFromEvent(e);
+    if (!ctx) return;
+    ctx.timer[settingInput.dataset.setting] = settingInput.checked;
+    persist();
+  }
+}
+
+function handleGridBlur(e) {
+  if (e.target.matches('.time-input')) {
+    var ctx = getTimerFromEvent(e);
+    if (!ctx || ctx.timer.state === 'running') return;
+    var unit = e.target.dataset.unit;
+    var val = parseInt(e.target.value, 10) || 0;
+    if (unit === 'hours') val = Math.min(99, Math.max(0, val));
+    else val = Math.min(59, Math.max(0, val));
+    e.target.value = String(val).padStart(2, '0');
+    commitTimeInput(e.target);
+    return;
+  }
+
+  var titleEl = e.target.closest('.timer-title');
+  if (titleEl && titleEl.contentEditable === 'true') {
+    titleEl.contentEditable = 'false';
+    var ctx = getTimerFromEvent(e);
+    if (!ctx) return;
+    ctx.timer.title = titleEl.textContent.trim() || 'Timer';
+    titleEl.textContent = ctx.timer.title;
+    persist();
+  }
+}
+
+function handleGridFocus(e) {
+  if (!e.target.matches('.time-input')) return;
+  var ctx = getTimerFromEvent(e);
+  if (ctx && ctx.timer.state === 'running') return;
+  e.target.select();
+}
+
+function handleGridKeydown(e) {
+  if (e.target.matches('.time-input')) {
+    if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); adjustTimeInput(e.target, 1); commitTimeInput(e.target); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); adjustTimeInput(e.target, -1); commitTimeInput(e.target); return; }
+    if (!/^\d$/.test(e.key) && ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'].indexOf(e.key) === -1) {
       e.preventDefault();
-      titleEl.blur();
     }
-  });
+    return;
+  }
 
-  // Double-click: title editing
-  gridEl.addEventListener('dblclick', function(e) {
-    var titleEl = e.target.closest('.timer-title');
-    if (!titleEl) return;
-    titleEl.contentEditable = 'true';
-    titleEl.focus();
-    var range = document.createRange();
-    range.selectNodeContents(titleEl);
-    var sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-  });
-
-  // Chevron click + hold-to-repeat
-  gridEl.addEventListener('mousedown', function(e) {
-    var chevron = e.target.closest('.time-chevron');
-    if (!chevron) return;
+  var titleEl = e.target.closest('.timer-title');
+  if (titleEl && titleEl.contentEditable === 'true' && e.key === 'Enter') {
     e.preventDefault();
-    var wrap = chevron.closest('.time-input-wrap');
-    var input = wrap.querySelector('.time-input');
-    if (input.classList.contains('running')) return;
+    titleEl.blur();
+  }
+}
 
-    var dir = chevron.dataset.dir === 'up' ? 1 : -1;
-    adjustTimeInput(input, dir);
+function handleGridDblclick(e) {
+  var titleEl = e.target.closest('.timer-title');
+  if (!titleEl) return;
+  titleEl.contentEditable = 'true';
+  titleEl.focus();
+  var range = document.createRange();
+  range.selectNodeContents(titleEl);
+  var sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
 
-    var delay = CHEVRON_INITIAL_DELAY;
-    var timeoutId = null;
-    function repeatAdjust() {
-      adjustTimeInput(input, dir);
-      delay = Math.max(CHEVRON_MIN_DELAY, delay * CHEVRON_ACCEL);
-      timeoutId = setTimeout(repeatAdjust, delay);
-    }
-    timeoutId = setTimeout(repeatAdjust, delay);
+function handleGridWheel(e) {
+  var input = e.target.closest('.time-input');
+  if (!input || input.classList.contains('running')) return;
+  e.preventDefault();
+  var dir = e.deltaY < 0 ? 1 : -1;
+  snapTimeInput(input, dir);
+  commitTimeInput(input);
+}
 
-    function stopRepeat() {
-      clearTimeout(timeoutId);
-      commitTimeInput(input);
-      document.removeEventListener('mouseup', stopRepeat);
-      document.removeEventListener('mouseleave', stopRepeat);
-    }
-    document.addEventListener('mouseup', stopRepeat);
-    document.addEventListener('mouseleave', stopRepeat);
-  });
-
-  // Mouse wheel on time inputs
-  gridEl.addEventListener('wheel', function(e) {
-    var input = e.target.closest('.time-input');
-    if (!input || input.classList.contains('running')) return;
-    e.preventDefault();
-    var dir = e.deltaY < 0 ? 1 : -1;
-    adjustTimeInput(input, dir);
-    commitTimeInput(input);
-  }, { passive: false });
+function attachGridListeners() {
+  var gridEl = document.getElementById('timer-grid');
+  gridEl.addEventListener('mousedown', handleGridMousedown);
+  gridEl.addEventListener('dragstart', handleGridDragStart, true);
+  gridEl.addEventListener('dragover', handleGridDragOver);
+  gridEl.addEventListener('drop', handleGridDrop);
+  gridEl.addEventListener('dragend', handleGridDragEnd);
+  gridEl.addEventListener('dragleave', handleGridDragLeave);
+  gridEl.addEventListener('click', handleGridClick);
+  gridEl.addEventListener('change', handleGridChange);
+  gridEl.addEventListener('blur', handleGridBlur, true);
+  gridEl.addEventListener('focus', handleGridFocus, true);
+  gridEl.addEventListener('keydown', handleGridKeydown);
+  gridEl.addEventListener('dblclick', handleGridDblclick);
+  gridEl.addEventListener('wheel', handleGridWheel, { passive: false });
 }
 
 function addTimer(durationMs, title) {

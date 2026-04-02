@@ -115,13 +115,10 @@ function openPresetEditor(id) {
   document.getElementById('pe-name').value = p.name || '';
   document.getElementById('pe-title').value = p.title || '';
 
-  var totalSec = Math.floor((p.durationMs || 0) / 1000);
-  var h = Math.floor(totalSec / 3600);
-  var m = Math.floor((totalSec % 3600) / 60);
-  var s = totalSec % 60;
-  document.getElementById('pe-hours').value = String(h).padStart(2, '0');
-  document.getElementById('pe-minutes').value = String(m).padStart(2, '0');
-  document.getElementById('pe-seconds').value = String(s).padStart(2, '0');
+  var t = msToHMS(p.durationMs || 0);
+  document.getElementById('pe-hours').value = String(t.h).padStart(2, '0');
+  document.getElementById('pe-minutes').value = String(t.m).padStart(2, '0');
+  document.getElementById('pe-seconds').value = String(t.s).padStart(2, '0');
 
   var soundSelect = document.getElementById('pe-sound');
   soundSelect.innerHTML = buildDropdownHTML();
@@ -300,13 +297,13 @@ function editMessage(id) {
   document.getElementById('msg-save').textContent = 'Update Message';
 }
 
-function deleteMessage(id) {
-  var key = 'cmsg:' + id;
+function deleteCustomItem(type, id, prefix, loadFn, saveFn, renderFn, extraFn) {
+  var key = prefix + id;
   var count = 0;
   App.timers.forEach(function(t) { if (t.soundKey === key) count++; });
   var msg = count > 0
-    ? 'This message is used by ' + count + ' timer(s). They will revert to Alarm. Delete?'
-    : 'Delete this custom message?';
+    ? 'This ' + type + ' is used by ' + count + ' timer(s). They will revert to Alarm. Delete?'
+    : 'Delete this custom ' + type + '?';
   if (!confirm(msg)) return;
 
   if (count > 0) {
@@ -314,10 +311,15 @@ function deleteMessage(id) {
     persist();
   }
 
-  var msgs = loadCustomMessages().filter(function(x) { return x.id !== id; });
-  saveCustomMessages(msgs);
-  renderMessagesTab();
+  var items = loadFn().filter(function(x) { return x.id !== id; });
+  saveFn(items);
+  renderFn();
+  if (extraFn) extraFn();
   rebuildAllDropdowns();
+}
+
+function deleteMessage(id) {
+  deleteCustomItem('message', id, 'cmsg:', loadCustomMessages, saveCustomMessages, renderMessagesTab);
 }
 
 // ===== Sounds Tab =====
@@ -359,24 +361,7 @@ function renderSoundsTab() {
 }
 
 function deleteSound(id) {
-  var key = 'csnd:' + id;
-  var count = 0;
-  App.timers.forEach(function(t) { if (t.soundKey === key) count++; });
-  var msg = count > 0
-    ? 'This sound is used by ' + count + ' timer(s). They will revert to Alarm. Delete?'
-    : 'Delete this custom sound?';
-  if (!confirm(msg)) return;
-
-  if (count > 0) {
-    App.timers.forEach(function(t) { if (t.soundKey === key) t.soundKey = 'alarm'; });
-    persist();
-  }
-
-  var snds = loadCustomSounds().filter(function(x) { return x.id !== id; });
-  saveCustomSounds(snds);
-  renderSoundsTab();
-  updateStorageBar();
-  rebuildAllDropdowns();
+  deleteCustomItem('sound', id, 'csnd:', loadCustomSounds, saveCustomSounds, renderSoundsTab, updateStorageBar);
 }
 
 function getCustomSoundsTotalBytes() {
@@ -447,47 +432,30 @@ function previewImport(file) {
   reader.readAsText(file);
 }
 
+function mergeImportedItems(existing, imported) {
+  var ids = {};
+  existing.forEach(function(item) { ids[item.id] = true; });
+  imported.forEach(function(item) {
+    if (ids[item.id]) {
+      existing = existing.map(function(x) { return x.id === item.id ? item : x; });
+    } else {
+      existing.push(item);
+    }
+  });
+  return existing;
+}
+
 function doImport(jsonStr) {
   try {
     var data = JSON.parse(jsonStr);
     if (data.presets && data.presets.length) {
-      var existing = loadPresets();
-      var existingIds = {};
-      existing.forEach(function(p) { existingIds[p.id] = true; });
-      data.presets.forEach(function(p) {
-        if (existingIds[p.id]) {
-          existing = existing.map(function(x) { return x.id === p.id ? p : x; });
-        } else {
-          existing.push(p);
-        }
-      });
-      savePresets(existing);
+      savePresets(mergeImportedItems(loadPresets(), data.presets));
     }
     if (data.customMessages && data.customMessages.length) {
-      var existing = loadCustomMessages();
-      var existingIds = {};
-      existing.forEach(function(m) { existingIds[m.id] = true; });
-      data.customMessages.forEach(function(m) {
-        if (existingIds[m.id]) {
-          existing = existing.map(function(x) { return x.id === m.id ? m : x; });
-        } else {
-          existing.push(m);
-        }
-      });
-      saveCustomMessages(existing);
+      saveCustomMessages(mergeImportedItems(loadCustomMessages(), data.customMessages));
     }
     if (data.customSounds && data.customSounds.length) {
-      var existing = loadCustomSounds();
-      var existingIds = {};
-      existing.forEach(function(s) { existingIds[s.id] = true; });
-      data.customSounds.forEach(function(s) {
-        if (existingIds[s.id]) {
-          existing = existing.map(function(x) { return x.id === s.id ? s : x; });
-        } else {
-          existing.push(s);
-        }
-      });
-      saveCustomSounds(existing);
+      saveCustomSounds(mergeImportedItems(loadCustomSounds(), data.customSounds));
     }
     rebuildAllDropdowns();
     rebuildAddTimerMenu();
@@ -650,30 +618,14 @@ function attachSettingsModalListeners() {
       var wrap = chevron.closest('.time-input-wrap');
       var input = wrap.querySelector('.time-input');
       var dir = chevron.dataset.dir === 'up' ? 1 : -1;
-      adjustTimeInput(input, dir);
-      var delay = CHEVRON_INITIAL_DELAY;
-      var timeoutId = null;
-      function repeatAdjust() {
-        adjustTimeInput(input, dir);
-        delay = Math.max(CHEVRON_MIN_DELAY, delay * CHEVRON_ACCEL);
-        timeoutId = setTimeout(repeatAdjust, delay);
-      }
-      timeoutId = setTimeout(repeatAdjust, delay);
-      function stopRepeat() {
-        clearTimeout(timeoutId);
-        commitPresetTimeInput(input);
-        document.removeEventListener('mouseup', stopRepeat);
-        document.removeEventListener('mouseleave', stopRepeat);
-      }
-      document.addEventListener('mouseup', stopRepeat);
-      document.addEventListener('mouseleave', stopRepeat);
+      startChevronRepeat(input, dir, commitPresetTimeInput);
     });
     peTimeRow.addEventListener('wheel', function(e) {
       var input = e.target.closest('.time-input');
       if (!input) return;
       e.preventDefault();
       var dir = e.deltaY < 0 ? 1 : -1;
-      adjustTimeInput(input, dir);
+      snapTimeInput(input, dir);
       commitPresetTimeInput(input);
     }, { passive: false });
   }

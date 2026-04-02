@@ -51,7 +51,7 @@ function playSound(soundKey) {
 }
 
 function startRepeatSound(soundKey, intervalMs) {
-  intervalMs = intervalMs || 10000;
+  intervalMs = intervalMs || 20000;
   stopRepeatSound();
   playSound(soundKey);
   repeatInterval = setInterval(function() { playSound(soundKey); }, intervalMs);

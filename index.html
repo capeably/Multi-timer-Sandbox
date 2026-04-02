@@ -51,6 +51,14 @@
           <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
         </svg>
       </button>
+      <button class="btn-icon btn-compact-toggle" id="btn-compact" aria-label="Toggle compact mode" title="Toggle compact mode">
+        <svg class="icon-compact" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
+        </svg>
+        <svg class="icon-expanded" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        </svg>
+      </button>
       <button class="btn-icon" id="btn-settings" aria-label="Settings" title="Settings">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <circle cx="12" cy="12" r="3"/>
@@ -76,12 +84,13 @@
       <div class="timer-title-bar">
         <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#9776;</span>
         <span class="timer-title" title="Double-click to edit">Timer</span>
-        <button class="btn-delete-x" data-action="delete-x" title="Delete timer" aria-label="Delete timer">&times;</button>
+        <button class="btn-timer-delete" data-action="delete-x" title="Delete timer" aria-label="Delete timer">&times;</button>
       </div>
       <div class="timer-controls">
         <div class="progress-bar-bg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div class="progress-bar-fill"></div>
         </div>
+        <span class="compact-time"></span>
         <button class="btn-ctrl btn-stop hidden" data-action="reset" title="Stop" aria-label="Stop">&#9632;</button>
         <button class="btn-ctrl btn-pause hidden" data-action="pause" title="Pause" aria-label="Pause">&#10074;&#10074;</button>
         <button class="btn-ctrl btn-play" data-action="play" title="Start" aria-label="Start">&#9654;</button>
@@ -271,7 +280,7 @@
         </div>
         <div class="form-row">
           <label for="pe-sound">Sound</label>
-          <select id="pe-sound" class="preset-select" style="width:100%;padding:8px 10px;border-radius:4px;font-size:14px;"></select>
+          <select id="pe-sound" class="preset-select"></select>
         </div>
         <div class="form-row">
           <label>Color</label>
@@ -299,7 +308,7 @@
           <input type="checkbox" id="pe-soundEnabled" checked>
           <span class="toggle-switch"></span>
         </label>
-        <div class="form-actions" style="margin-top:16px;">
+        <div class="form-actions">
           <button class="btn-secondary" id="pe-cancel">Cancel</button>
           <button class="btn-primary" id="pe-save">Save Changes</button>
         </div>

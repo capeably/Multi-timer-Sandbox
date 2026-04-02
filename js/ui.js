@@ -8,15 +8,48 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function msToHMS(ms, roundUp) {
+  var totalSec = roundUp ? Math.ceil(ms / 1000) : Math.floor(ms / 1000);
+  return {
+    h: Math.floor(totalSec / 3600),
+    m: Math.floor((totalSec % 3600) / 60),
+    s: totalSec % 60
+  };
+}
+
+function formatCompactTime(ms) {
+  var t = msToHMS(ms, true);
+  if (t.h > 0) return t.h + ':' + String(t.m).padStart(2, '0') + ':' + String(t.s).padStart(2, '0');
+  return String(t.m).padStart(2, '0') + ':' + String(t.s).padStart(2, '0');
+}
+
 function formatDuration(ms) {
-  var s = Math.floor(ms / 1000);
-  var h = Math.floor(s / 3600); s %= 3600;
-  var m = Math.floor(s / 60); s %= 60;
+  var t = msToHMS(ms);
   var parts = [];
-  if (h > 0) parts.push(h + 'h');
-  if (m > 0) parts.push(m + 'm');
-  if (s > 0 || parts.length === 0) parts.push(s + 's');
+  if (t.h > 0) parts.push(t.h + 'h');
+  if (t.m > 0) parts.push(t.m + 'm');
+  if (t.s > 0 || parts.length === 0) parts.push(t.s + 's');
   return parts.join(' ');
+}
+
+function startChevronRepeat(input, dir, commitFn) {
+  adjustTimeInput(input, dir);
+  var delay = CHEVRON_INITIAL_DELAY;
+  var timeoutId = null;
+  function repeat() {
+    adjustTimeInput(input, dir);
+    delay = Math.max(CHEVRON_MIN_DELAY, delay * CHEVRON_ACCEL);
+    timeoutId = setTimeout(repeat, delay);
+  }
+  timeoutId = setTimeout(repeat, delay);
+  function stop() {
+    clearTimeout(timeoutId);
+    commitFn(input);
+    document.removeEventListener('mouseup', stop);
+    document.removeEventListener('mouseleave', stop);
+  }
+  document.addEventListener('mouseup', stop);
+  document.addEventListener('mouseleave', stop);
 }
 
 function isLightColor(hex) {
@@ -180,10 +213,8 @@ function createSegmentElement(segment, index) {
   row.className = 'segment-row';
   row.dataset.segmentId = segment.id;
 
-  var totalSec = Math.floor(segment.durationMs / 1000);
-  var h = Math.floor(totalSec / 3600);
-  var m = Math.floor((totalSec % 3600) / 60);
-  var s = totalSec % 60;
+  var t = msToHMS(segment.durationMs);
+  var h = t.h, m = t.m, s = t.s;
 
   row.innerHTML =
     '<span class="seg-drag-handle" title="Reorder segment">&#9776;</span>' +
@@ -252,14 +283,11 @@ function renderSegments(card, timer) {
 
 // ===== Timer Card Rendering =====
 function setSegmentTimeInputs(segEl, ms) {
-  var totalSec = Math.floor(ms / 1000);
-  var h = Math.floor(totalSec / 3600);
-  var m = Math.floor((totalSec % 3600) / 60);
-  var s = totalSec % 60;
+  var t = msToHMS(ms);
   var inputs = segEl.querySelectorAll('.time-input');
-  inputs[0].value = String(h).padStart(2, '0');
-  inputs[1].value = String(m).padStart(2, '0');
-  inputs[2].value = String(s).padStart(2, '0');
+  inputs[0].value = String(t.h).padStart(2, '0');
+  inputs[1].value = String(t.m).padStart(2, '0');
+  inputs[2].value = String(t.s).padStart(2, '0');
 }
 
 function readSegmentTimeInputs(segEl) {
@@ -268,18 +296,6 @@ function readSegmentTimeInputs(segEl) {
   var m = parseInt(inputs[1].value, 10) || 0;
   var s = parseInt(inputs[2].value, 10) || 0;
   return (h * 3600 + m * 60 + s) * 1000;
-}
-
-// Legacy wrappers
-function setTimeInputs(card, ms) {
-  var activeSeg = card.querySelector('.segment-row.active') || card.querySelector('.segment-row');
-  if (activeSeg) setSegmentTimeInputs(activeSeg, ms);
-}
-
-function readTimeInputs(card) {
-  var activeSeg = card.querySelector('.segment-row.active') || card.querySelector('.segment-row');
-  if (activeSeg) return readSegmentTimeInputs(activeSeg);
-  return 0;
 }
 
 function renderTimerCard(timer) {
@@ -301,6 +317,10 @@ function renderTimerCard(timer) {
   card.querySelectorAll('.color-btn').forEach(function(btn) {
     btn.classList.toggle('active', btn.dataset.color === timer.color);
   });
+
+  // Set initial compact time display
+  var compactTime = card.querySelector('.compact-time');
+  if (compactTime) compactTime.textContent = formatCompactTime(timer.activeSegment.durationMs);
 
   document.getElementById('timer-grid').appendChild(clone);
 }
@@ -338,6 +358,17 @@ function updateTimerCard(timer) {
   fill.style.width = pct + '%';
   var progressBar = card.querySelector('.progress-bar-bg');
   if (progressBar) progressBar.setAttribute('aria-valuenow', Math.round(pct));
+
+  // Update compact time display
+  var compactTime = card.querySelector('.compact-time');
+  if (compactTime) {
+    var timeMs = (timer.state === 'idle') ? timer.activeSegment.durationMs : timer.remainingMs;
+    var text = formatCompactTime(timeMs);
+    if (timer.segments.length > 1 && timer.state !== 'idle') {
+      text += '  ' + (timer._activeSegmentIndex + 1) + '/' + timer.segments.length;
+    }
+    compactTime.textContent = text;
+  }
 
   var btnPlay = card.querySelector('.btn-play');
   var btnPause = card.querySelector('.btn-pause');
@@ -379,7 +410,7 @@ function updateTimerCard(timer) {
     if (!card.querySelector('.stop-sound-banner')) {
       var banner = document.createElement('div');
       banner.className = 'stop-sound-banner';
-      banner.textContent = 'Click to stop sound';
+      banner.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/></svg> Turn Off Alarm';
       banner.dataset.action = 'stop-sound';
       card.insertBefore(banner, card.firstChild);
     }
