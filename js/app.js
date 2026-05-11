@@ -53,22 +53,21 @@ function init() {
   var configs = loadTimers();
   if (configs.length === 0) configs.push(getDefaultTimerConfig());
 
+  App.volumeSlider = document.getElementById('volume-slider');
+  App.volumeSlider.value = loadVolume();
+
   configs.sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
   configs.forEach(function(cfg) {
     var t = Timer.fromJSON(cfg);
     App.timers.set(t.id, t);
     renderTimerCard(t);
     if (t.state !== 'idle') {
-      if (t.state === 'running' && t.remainingMs <= 0) {
-        handleTimerComplete(t);
-      } else {
-        updateTimerCard(t);
-      }
+      // Running timer whose duration elapsed while the app was closed:
+      // mark it completed silently — don't replay the alarm on reopen.
+      if (t.state === 'running' && t.remainingMs <= 0) t.complete();
+      updateTimerCard(t);
     }
   });
-
-  App.volumeSlider = document.getElementById('volume-slider');
-  App.volumeSlider.value = loadVolume();
 
   // Create aria-live region
   App.liveRegion = document.createElement('div');
