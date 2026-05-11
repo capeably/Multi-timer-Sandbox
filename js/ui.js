@@ -318,9 +318,15 @@ function renderTimerCard(timer) {
     btn.classList.toggle('active', btn.dataset.color === timer.color);
   });
 
-  // Set initial compact time display
-  var compactTime = card.querySelector('.compact-time');
-  if (compactTime) compactTime.textContent = formatCompactTime(timer.activeSegment.durationMs);
+  // Set initial compact time and sound state
+  var compactDisplay = card.querySelector('.compact-time-display');
+  if (compactDisplay) compactDisplay.textContent = formatCompactTime(timer.activeSegment.durationMs);
+
+  var compactSoundBtn = card.querySelector('.btn-compact-sound');
+  if (compactSoundBtn) {
+    var anyEnabled = timer.segments.some(function(s) { return s.soundEnabled; });
+    compactSoundBtn.classList.toggle('muted', !anyEnabled);
+  }
 
   document.getElementById('timer-grid').appendChild(clone);
 }
@@ -360,14 +366,22 @@ function updateTimerCard(timer) {
   if (progressBar) progressBar.setAttribute('aria-valuenow', Math.round(pct));
 
   // Update compact time display
-  var compactTime = card.querySelector('.compact-time');
-  if (compactTime) {
+  var compactDisplay = card.querySelector('.compact-time-display');
+  if (compactDisplay) {
     var timeMs = (timer.state === 'idle') ? timer.activeSegment.durationMs : timer.remainingMs;
     var text = formatCompactTime(timeMs);
     if (timer.segments.length > 1 && timer.state !== 'idle') {
       text += '  ' + (timer._activeSegmentIndex + 1) + '/' + timer.segments.length;
     }
-    compactTime.textContent = text;
+    compactDisplay.textContent = text;
+    // Close compact edit if timer starts running
+    if (timer.state !== 'idle') {
+      var edit = card.querySelector('.compact-time-edit');
+      if (edit && !edit.classList.contains('hidden')) {
+        edit.classList.add('hidden');
+        compactDisplay.classList.remove('hidden');
+      }
+    }
   }
 
   var btnPlay = card.querySelector('.btn-play');
@@ -417,6 +431,13 @@ function updateTimerCard(timer) {
   } else {
     var banner = card.querySelector('.stop-sound-banner');
     if (banner) banner.remove();
+  }
+
+  // Sync compact sound toggle state
+  var compactSoundBtn = card.querySelector('.btn-compact-sound');
+  if (compactSoundBtn) {
+    var anyEnabled = timer.segments.some(function(s) { return s.soundEnabled; });
+    compactSoundBtn.classList.toggle('muted', !anyEnabled);
   }
 }
 

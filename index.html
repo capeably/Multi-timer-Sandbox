@@ -90,10 +90,11 @@
         <div class="progress-bar-bg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div class="progress-bar-fill"></div>
         </div>
-        <span class="compact-time"></span>
-        <button class="btn-ctrl btn-stop hidden" data-action="reset" title="Stop" aria-label="Stop">&#9632;</button>
+        <span class="compact-time"><span class="compact-time-display"></span><span class="compact-time-edit hidden"><input type="text" class="compact-time-input" data-unit="hours" maxlength="2" inputmode="numeric" aria-label="Hours" value="00"><span class="compact-time-sep">:</span><input type="text" class="compact-time-input" data-unit="minutes" maxlength="2" inputmode="numeric" aria-label="Minutes" value="00"><span class="compact-time-sep">:</span><input type="text" class="compact-time-input" data-unit="seconds" maxlength="2" inputmode="numeric" aria-label="Seconds" value="00"></span></span>
+        <button class="btn-ctrl btn-stop hidden" data-action="reset" title="Reset" aria-label="Reset">&#8634;</button>
         <button class="btn-ctrl btn-pause hidden" data-action="pause" title="Pause" aria-label="Pause">&#10074;&#10074;</button>
         <button class="btn-ctrl btn-play" data-action="play" title="Start" aria-label="Start">&#9654;</button>
+        <button class="btn-compact-sound" data-action="compact-toggle-sound" title="Sound on/off" aria-label="Toggle sound"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path class="sound-wave" d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
         <button class="btn-dots" data-action="settings" title="Settings" aria-label="Settings">&#8942;</button>
       </div>
       <div class="segments-container">

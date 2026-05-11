@@ -537,8 +537,59 @@ function handleGridDragLeave(e) {
   if (card) card.classList.remove('drag-over');
 }
 
+function openCompactTimeEdit(card, timer) {
+  var display = card.querySelector('.compact-time-display');
+  var edit = card.querySelector('.compact-time-edit');
+  if (!display || !edit) return;
+  display.classList.add('hidden');
+  edit.classList.remove('hidden');
+  var t = msToHMS(timer.activeSegment.durationMs);
+  var inputs = edit.querySelectorAll('.compact-time-input');
+  inputs[0].value = String(t.h).padStart(2, '0');
+  inputs[1].value = String(t.m).padStart(2, '0');
+  inputs[2].value = String(t.s).padStart(2, '0');
+  inputs[1].focus();
+  inputs[1].select();
+}
+
+function closeCompactTimeEdit(card, commit) {
+  var display = card.querySelector('.compact-time-display');
+  var edit = card.querySelector('.compact-time-edit');
+  if (!display || !edit || edit.classList.contains('hidden')) return;
+  if (commit) {
+    var ctx = getTimerFromEvent({target: card});
+    if (ctx && ctx.timer.state === 'idle') {
+      var inputs = edit.querySelectorAll('.compact-time-input');
+      var h = Math.min(99, Math.max(0, parseInt(inputs[0].value, 10) || 0));
+      var m = Math.min(59, Math.max(0, parseInt(inputs[1].value, 10) || 0));
+      var s = Math.min(59, Math.max(0, parseInt(inputs[2].value, 10) || 0));
+      var ms = (h * 3600 + m * 60 + s) * 1000;
+      if (ms > 0) {
+        ctx.timer.activeSegment.durationMs = ms;
+        // Also update the hidden segment row inputs
+        var segEl = ctx.card.querySelector('.segment-row.active') || ctx.card.querySelector('.segment-row');
+        if (segEl) setSegmentTimeInputs(segEl, ms);
+        display.textContent = formatCompactTime(ms);
+        persist();
+      }
+    }
+  }
+  edit.classList.add('hidden');
+  display.classList.remove('hidden');
+}
+
 function handleGridClick(e) {
   var gridEl = document.getElementById('timer-grid');
+
+  // Compact time edit: click display to open
+  var compactDisplay = e.target.closest('.compact-time-display');
+  if (compactDisplay) {
+    var ctx = getTimerFromEvent(e);
+    if (ctx && ctx.timer.state === 'idle') {
+      openCompactTimeEdit(ctx.card, ctx.timer);
+    }
+    return;
+  }
 
   var colorBtn = e.target.closest('.color-btn');
   if (colorBtn) {
@@ -678,6 +729,16 @@ function handleGridClick(e) {
         persist();
       }
       break;
+    case 'compact-toggle-sound':
+      var allMuted = timer.segments.every(function(s) { return !s.soundEnabled; });
+      timer.segments.forEach(function(s) { s.soundEnabled = allMuted; });
+      var compactSndBtn = ctx.card.querySelector('.btn-compact-sound');
+      if (compactSndBtn) compactSndBtn.classList.toggle('muted', !allMuted);
+      ctx.card.querySelectorAll('.btn-sound-toggle').forEach(function(btn, i) {
+        if (timer.segments[i]) btn.classList.toggle('muted', !timer.segments[i].soundEnabled);
+      });
+      persist();
+      break;
     case 'toggle-sound-picker':
       var picker = actionEl.closest('.sound-picker');
       if (picker) {
@@ -744,6 +805,20 @@ function handleGridBlur(e) {
     return;
   }
 
+  // Compact time edit: close on blur (defer to let focus settle)
+  if (e.target.matches('.compact-time-input')) {
+    var card = e.target.closest('.timer-card');
+    if (card) {
+      setTimeout(function() {
+        var edit = card.querySelector('.compact-time-edit');
+        if (edit && !edit.contains(document.activeElement)) {
+          closeCompactTimeEdit(card, true);
+        }
+      }, 0);
+    }
+    return;
+  }
+
   var titleEl = e.target.closest('.timer-title');
   if (titleEl && titleEl.contentEditable === 'true') {
     titleEl.contentEditable = 'false';
@@ -756,6 +831,10 @@ function handleGridBlur(e) {
 }
 
 function handleGridFocus(e) {
+  if (e.target.matches('.compact-time-input')) {
+    e.target.select();
+    return;
+  }
   if (!e.target.matches('.time-input')) return;
   var ctx = getTimerFromEvent(e);
   if (ctx && ctx.timer.state === 'running') return;
@@ -767,6 +846,14 @@ function handleGridKeydown(e) {
     if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
     if (e.key === 'ArrowUp') { e.preventDefault(); adjustTimeInput(e.target, 1); commitTimeInput(e.target); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); adjustTimeInput(e.target, -1); commitTimeInput(e.target); return; }
+    if (!/^\d$/.test(e.key) && ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'].indexOf(e.key) === -1) {
+      e.preventDefault();
+    }
+    return;
+  }
+
+  if (e.target.matches('.compact-time-input')) {
+    if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); return; }
     if (!/^\d$/.test(e.key) && ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'].indexOf(e.key) === -1) {
       e.preventDefault();
     }
@@ -793,11 +880,12 @@ function handleGridDblclick(e) {
 }
 
 function handleGridWheel(e) {
-  var input = e.target.closest('.time-input');
+  var input = e.target.closest('.time-input') || e.target.closest('.compact-time-input');
   if (!input || input.classList.contains('running')) return;
   e.preventDefault();
   var dir = e.deltaY < 0 ? 1 : -1;
   snapTimeInput(input, dir);
+  if (input.classList.contains('compact-time-input')) return; // commit happens on blur
   commitTimeInput(input);
 }
 
